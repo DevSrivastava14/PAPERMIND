@@ -2,7 +2,8 @@ from pathlib import Path
 import pytest
 import pymupdf
 
-from app.ingestion.pdf_parser import extract_pdf_pages
+from app.ingestion.models import PageContent, ResearchPaperDocument
+from app.ingestion.pdf_parser import extract_pdf_pages, parse_research_paper
 
 
 def create_sample_pdf(file_path: Path, pages_content: list[str]) -> Path:
@@ -73,3 +74,68 @@ def test_invalid_pdf(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Invalid PDF file"):
         extract_pdf_pages(corrupt_file)
+
+
+def test_parse_research_paper_structure_and_pages(tmp_path: Path):
+    pdf_path = tmp_path / "quantum_mechanics.pdf"
+    contents = ["Abstract and Introduction", "Methods and Results"]
+    create_sample_pdf(pdf_path, contents)
+
+    doc = parse_research_paper(pdf_path)
+
+    assert isinstance(doc, ResearchPaperDocument)
+    assert doc.filename == "quantum_mechanics.pdf"
+    assert doc.total_pages == 2
+    assert len(doc.pages) == 2
+
+    for idx, expected_text in enumerate(contents, start=1):
+        page = doc.pages[idx - 1]
+        assert isinstance(page, PageContent)
+        assert page.page_number == idx
+        assert expected_text in page.text
+        assert page.has_text is True
+
+
+def test_parse_research_paper_with_blank_pages(tmp_path: Path):
+    pdf_path = tmp_path / "doc_with_blanks.pdf"
+    create_sample_pdf(pdf_path, ["Front matter", "", "   \t\n  "])
+
+    doc = parse_research_paper(pdf_path)
+
+    assert doc.total_pages == 3
+    assert len(doc.pages) == 3
+
+    assert doc.pages[0].has_text is True
+    assert "Front matter" in doc.pages[0].text
+
+    assert doc.pages[1].has_text is False
+    assert doc.pages[1].text == ""
+
+    assert doc.pages[2].has_text is False
+    assert doc.pages[2].text.strip() == ""
+
+
+def test_parse_research_paper_error_handling(tmp_path: Path):
+    missing_file = tmp_path / "missing.pdf"
+    with pytest.raises(FileNotFoundError, match="PDF file not found"):
+        parse_research_paper(missing_file)
+
+    corrupt_file = tmp_path / "corrupt.pdf"
+    corrupt_file.write_text("Not a real PDF.")
+    with pytest.raises(ValueError, match="Invalid PDF file"):
+        parse_research_paper(corrupt_file)
+
+
+def test_parse_research_paper_sample_smoke():
+    sample_path = Path("data/sample_paper.pdf")
+    if not sample_path.exists():
+        pytest.skip("Local sample paper fixture not present.")
+
+    doc = parse_research_paper(sample_path)
+
+    assert isinstance(doc, ResearchPaperDocument)
+    assert doc.filename == "sample_paper.pdf"
+    assert doc.total_pages == 7
+    assert len(doc.pages) == 7
+    assert all(isinstance(p, PageContent) for p in doc.pages)
+    assert all(p.has_text for p in doc.pages)

@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 import pymupdf
 
+from app.ingestion.models import PageContent, ResearchPaperDocument
+
 
 def extract_pdf_pages(pdf_path: str | Path) -> List[Dict[str, Any]]:
     """Extracts text and metadata page-by-page from a PDF document.
@@ -46,3 +48,36 @@ def extract_pdf_pages(pdf_path: str | Path) -> List[Dict[str, Any]]:
         doc.close()
 
     return pages_data
+
+
+def parse_research_paper(pdf_path: str | Path) -> ResearchPaperDocument:
+    """Parses a research paper PDF into a structured document representation.
+
+    Args:
+        pdf_path: File system path to the PDF document.
+
+    Returns:
+        A ResearchPaperDocument instance containing the source filename,
+        total page count, and page-by-page extracted content.
+
+    Raises:
+        FileNotFoundError: If the specified file does not exist.
+        ValueError: If the file is not a valid or readable PDF.
+    """
+    path = Path(pdf_path)
+    raw_pages = extract_pdf_pages(path)
+
+    pages = [
+        PageContent(
+            page_number=page["page_number"],
+            text=page["text"],
+            has_text=page["has_text"],
+        )
+        for page in raw_pages
+    ]
+
+    return ResearchPaperDocument(
+        filename=path.name,
+        total_pages=len(pages),
+        pages=pages,
+    )
