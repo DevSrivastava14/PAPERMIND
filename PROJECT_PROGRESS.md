@@ -41,7 +41,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 2 Complete
+- **Status:** Day 3 Complete
 - **Date:** October 11, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
@@ -109,13 +109,43 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+### Day 3 — October 11, 2026 (Completed)
+- **Completed Tasks:**
+  - Created `app/chunking/models.py` defining `TextChunk` dataclass (`chunk_id`, `text`, `source_filename`, `chunk_index`, `page_numbers`).
+  - Implemented `TextChunker` class and convenience function `chunk_document()` in `app/chunking/text_chunker.py` using a deterministic sliding window (`chunk_size=1000`, `chunk_overlap=150`).
+  - Added strict parameter validation enforcing `chunk_size > 0`, `chunk_overlap >= 0`, and `chunk_overlap < chunk_size` with informative `ValueError` exceptions.
+  - Implemented accurate 1-based page provenance tracking using character offset spans; verified page separators (`\n\n`) do not cause false page attribution.
+  - Handled edge cases: skipped blank/whitespace pages, returned empty lists for unextractable documents, and preserved source text and final short chunks without truncation.
+  - Generated deterministic chunk IDs (`f"{filename}#chunk_{index}"`) with sequential 0-based indices.
+  - Re-exported public chunking interface in `app/chunking/__init__.py`.
+  - Created test suite in `tests/test_text_chunker.py` covering basic sliding window with overlap, exact chunk boundaries, final short chunk integrity, short documents, blank page skipping, multi-page boundary spanning, deterministic IDs, parameter validation errors, and smoke test on `data/sample_paper.pdf`.
+  - Executed tests in `.venv`: `.\.venv\Scripts\python -m pytest -q` passed (17 passed).
+- **Changed Files:**
+  - `app/chunking/__init__.py` (Created)
+  - `app/chunking/models.py` (Created)
+  - `app/chunking/text_chunker.py` (Created)
+  - `tests/test_text_chunker.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest -q`: 17 passed in 0.56s
+  - `git status --short`: `M PROJECT_PROGRESS.md`, `?? app/chunking/`, `?? tests/test_text_chunker.py`
+- **Decisions Made:**
+  - Created dedicated `app/chunking/` module to isolate text processing from PDF ingestion.
+  - Maintained zero external dependencies by using standard-library dataclasses and pure Python logic.
+  - Mapped page provenance via explicit character offsets rather than string matching to guarantee 100% accuracy and prevent false attribution across page separators.
+- **Remaining Limitations:**
+  - Pure character-based chunking may split words or sentences mid-boundary; semantic/sentence-aware boundary splitting is deferred.
+  - Multimodal chunks (tables, figures) deferred to Days 8–14.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 2 is complete.
-- **Next Session Instructions (Day 3):**
+- **Status:** Day 3 is complete.
+- **Next Session Instructions (Day 4):**
   1. Read this progress file (`PROJECT_PROGRESS.md`).
-  2. Implement text chunking strategy tailored for scientific research papers (chunk size, overlap).
-  3. Ensure chunk metadata tracks source filename, 1-based page numbers, and chunk index for provenance and citations.
-  4. Prepare chunked output structures for downstream embedding and retrieval indexing.
+  2. Plan and implement embedding generation pipeline using Sentence Transformers (`sentence-transformers`).
+  3. Define embedding model interface, batch encoding, and vector representations for `TextChunk` instances.
+  4. Prepare embedding outputs for downstream vector indexing (FAISS).
