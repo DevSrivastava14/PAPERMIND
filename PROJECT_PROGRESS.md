@@ -32,7 +32,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 | **API Framework** | FastAPI | Planned (Unverified) |
 | **Data Validation** | Pydantic | Planned (Unverified) |
 | **Embeddings** | Sentence Transformers (`sentence-transformers==6.1.0`) | Verified (Installed in `.venv`) |
-| **Vector Storage** | FAISS (initially) | Planned (Unverified) |
+| **Vector Storage** | FAISS (`faiss-cpu==1.15.1`) | Verified (Installed in `.venv`) |
 | **LLM Inference** | LLM Provider or Local Alternative | Planned (Unverified) |
 | **Evaluation** | Ragas | Planned (Unverified) |
 | **Observability** | Langfuse | Planned (Unverified) |
@@ -41,12 +41,12 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 4 Complete
+- **Status:** Day 5 Complete
 - **Date:** October 12, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
-  - `requirements.txt`: Pinned to `pymupdf==1.28.2`, `pytest==9.1.1`, and `sentence-transformers==6.1.0`
+  - `requirements.txt`: Pinned to `pymupdf==1.28.2`, `pytest==9.1.1`, `sentence-transformers==6.1.0`, and `faiss-cpu==1.15.1`
   - `.gitignore`: Configured and verified (ignores `.venv/`, pytest/Python caches, `data/*.pdf`, `data/processed/`, `data/uploads/`, `.env*` except `.env.example`, and logs)
   - `.env.example`: Contains `APP_ENV=development`
   - `README.md`: Intentionally kept empty until project completion (ComputeGrid workflow)
@@ -176,14 +176,50 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+### Day 5 — October 12, 2026 (Completed)
+- **Completed Tasks:**
+  - Pinned `faiss-cpu==1.15.1` in `requirements.txt` for Python 3.13.5 Windows compatibility, preserving all existing dependencies.
+  - Created dedicated `app/indexing/` module with public interface for FAISS vector indexing and similarity search.
+  - Created `app/indexing/models.py` defining `SearchResult` dataclass (`chunk`, `score`, `chunk_id`, `source_filename`, `page_numbers`).
+  - Implemented `FAISSIndex` class in `app/indexing/faiss_index.py`:
+    - Utilizes FAISS `IndexFlatIP` with L2-normalized vectors so search inner product mathematically matches cosine similarity.
+    - Validates vector dimensions, vector counts, finite numerical values (`np.isfinite()`), and input consistency before adding to FAISS.
+    - Preserves bidirectional mappings: internal integer ID -> `TextChunk` and `chunk_id` -> internal ID.
+    - Implemented `search_by_vector(query_vector, top_k)` with query L2-normalization and filtering of negative FAISS placeholder indices (`-1`).
+    - Implemented `search(query, top_k, embedder)` embedding text queries using the existing `BaseEmbedder` interface.
+    - Handled edge cases: empty indexes, empty or whitespace queries, non-positive `top_k`, and fewer than `top_k` indexed items without crashing.
+    - Provided factory method `FAISSIndex.from_embedding_result()` and convenience function `build_index()`.
+  - Re-exported public indexing interface in `app/indexing/__init__.py`.
+  - Created test suite in `tests/test_indexing.py` (9 tests) covering empty index search, empty text query search, invalid `top_k`, adding empty embedding results, exact cosine ranking and score verification, provenance and ID-to-chunk lookups, fewer-than-k result filtering, text search with mock embedders, and invalid input validation (NaN, Inf, dimension mismatch).
+  - Executed full test suite in `.venv`: 36 passed in 10.56s.
+- **Changed Files:**
+  - `requirements.txt` (Modified: added `faiss-cpu==1.15.1`)
+  - `app/indexing/__init__.py` (Created)
+  - `app/indexing/models.py` (Created)
+  - `app/indexing/faiss_index.py` (Created)
+  - `tests/test_indexing.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest -v`: 36 passed in 10.56s (9 in `test_indexing.py`, 10 in `test_embedder.py`, 9 in `test_pdf_parser.py`, 8 in `test_text_chunker.py`)
+  - `git status --short`: `M PROJECT_PROGRESS.md`, `M requirements.txt`, `?? app/indexing/`, `?? tests/test_indexing.py`
+- **Decisions Made:**
+  - Used FAISS `IndexFlatIP` coupled with L2-normalization to achieve exact cosine similarity ranking while avoiding Euclidean distance score inversions.
+  - Implemented safe zero-norm handling (`np.where(norm == 0, 1.0, norm)`) during normalization to avoid division by zero.
+  - Filtered out negative indices (`idx < 0`) in search results to cleanly handle cases where `top_k` exceeds the total number of items in the index without leaking FAISS sentinel values.
+  - Preserved the existing `TextChunk` and `EmbeddingResult` data models without unnecessary duplication.
+- **Remaining Limitations:**
+  - In-memory index only; disk persistence (`faiss.write_index`) is deferred.
+  - Dense semantic retrieval only; sparse keyword search (BM25) and hybrid retrieval deferred to Days 15–17.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 4 is complete.
-- **Next Session Instructions (Day 5):**
+- **Status:** Day 5 is complete.
+- **Next Session Instructions (Day 6):**
   1. Read this progress file (`PROJECT_PROGRESS.md`).
-  2. Implement FAISS vector storage (`faiss-cpu`) and indexing module in `app/indexing/` or `app/storage/`.
-  3. Index `EmbeddingResult` vectors and build metadata storage mapping FAISS internal IDs back to `TextChunk` records and chunk IDs.
-  4. Implement basic similarity search (k-nearest neighbors) query interface.
+  2. Implement baseline retrieval pipeline and citation assembler connecting query -> search -> formatted context with source/page citations.
+  3. Prepare retrieved context prompt formatting for downstream LLM generation.
 
