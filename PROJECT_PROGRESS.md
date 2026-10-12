@@ -31,7 +31,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 | **Testing** | pytest (`pytest==9.1.1`) | Verified (Installed in `.venv`) |
 | **API Framework** | FastAPI | Planned (Unverified) |
 | **Data Validation** | Pydantic | Planned (Unverified) |
-| **Embeddings** | Sentence Transformers | Planned (Unverified) |
+| **Embeddings** | Sentence Transformers (`sentence-transformers==6.1.0`) | Verified (Installed in `.venv`) |
 | **Vector Storage** | FAISS (initially) | Planned (Unverified) |
 | **LLM Inference** | LLM Provider or Local Alternative | Planned (Unverified) |
 | **Evaluation** | Ragas | Planned (Unverified) |
@@ -41,12 +41,12 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 3 Complete
-- **Date:** October 11, 2026
+- **Status:** Day 4 Complete
+- **Date:** October 12, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
-  - `requirements.txt`: Pinned to `pymupdf==1.28.2` and `pytest==9.1.1`
+  - `requirements.txt`: Pinned to `pymupdf==1.28.2`, `pytest==9.1.1`, and `sentence-transformers==6.1.0`
   - `.gitignore`: Configured and verified (ignores `.venv/`, pytest/Python caches, `data/*.pdf`, `data/processed/`, `data/uploads/`, `.env*` except `.env.example`, and logs)
   - `.env.example`: Contains `APP_ENV=development`
   - `README.md`: Intentionally kept empty until project completion (ComputeGrid workflow)
@@ -139,13 +139,51 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+### Day 4 — October 12, 2026 (Completed)
+- **Completed Tasks:**
+  - Pinned `sentence-transformers==6.1.0` in `requirements.txt` for Python 3.13.5 Windows compatibility, preserving `pymupdf==1.28.2` and `pytest==9.1.1`.
+  - Created dedicated `app/embeddings/` module with clean interface and model structures.
+  - Created `app/embeddings/models.py` defining `EmbeddedChunk` and `EmbeddingResult` preserving 2D float32 vectors, chunk IDs, separate metadata dictionaries, and original `TextChunk` instances.
+  - Created `app/embeddings/base.py` defining abstract `BaseEmbedder` interface with `dimension`, `model_name`, `embed_texts()`, and default metadata-preserving `embed_chunks()`.
+  - Implemented `SentenceTransformerEmbedder` in `app/embeddings/sentence_transformer_embedder.py` using `sentence-transformers/all-MiniLM-L6-v2` (dimension 384):
+    - Sequential batching via configurable `batch_size`.
+    - Strict vector validation: 2D array, count check, dimension check, and finite numerical values check (`np.isfinite()`).
+    - Handled empty input without crashing, returning empty `(0, dimension)` float32 arrays.
+    - Model caching via `get_embedder()` and `reset_embedder()` to prevent repeated model loading across calls.
+    - Testable dependency injection support accepting pre-instantiated or mocked models via `model` parameter.
+  - Re-exported public embedding interface in `app/embeddings/__init__.py`.
+  - Created test suite in `tests/test_embedder.py` (10 tests) covering empty input, output dimensions, vector count, chunk-to-vector mapping, batching call counts, non-finite numerical outputs (NaN and Inf), dimension mismatch, vector count mismatch, invalid batch sizes, and model caching reuse. All tests use mocked models without network access or model downloads.
+  - Executed full test suite: 27 passed in 12.59s.
+- **Changed Files:**
+  - `requirements.txt` (Modified: added `sentence-transformers==6.1.0`)
+  - `app/embeddings/__init__.py` (Created)
+  - `app/embeddings/base.py` (Created)
+  - `app/embeddings/models.py` (Created)
+  - `app/embeddings/sentence_transformer_embedder.py` (Created)
+  - `tests/test_embedder.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest -v`: 27 passed in 12.59s (10 in `test_embedder.py`, 9 in `test_pdf_parser.py`, 8 in `test_text_chunker.py`)
+  - `git status --short`: `M PROJECT_PROGRESS.md`, `M requirements.txt`, `?? app/embeddings/`, `?? tests/test_embedder.py`
+- **Decisions Made:**
+  - Pinned `sentence-transformers==6.1.0` which has native wheels for Python 3.13 on Windows.
+  - Separated vector array `vectors` (2D float32) from `chunk_ids` and `metadata` in `EmbeddingResult` to align directly with FAISS index requirements (`index.add()`) while keeping 1:1 provenance.
+  - Enforced strict numerical validation (`np.isfinite()`) to catch upstream model errors early before passing vectors to C++ FAISS bindings.
+  - Provided module-level `get_embedder()` caching and constructor injection (`model=...`) to ensure unit tests run offline in milliseconds and production code avoids repeated weights loading.
+- **Remaining Limitations:**
+  - Initial `torch` DLL load in Windows Python 3.13 incurs a one-time startup latency (~10–12s on fresh process spawn).
+  - Downstream vector storage (FAISS indexing) and similarity search deferred to Day 5.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 3 is complete.
-- **Next Session Instructions (Day 4):**
+- **Status:** Day 4 is complete.
+- **Next Session Instructions (Day 5):**
   1. Read this progress file (`PROJECT_PROGRESS.md`).
-  2. Plan and implement embedding generation pipeline using Sentence Transformers (`sentence-transformers`).
-  3. Define embedding model interface, batch encoding, and vector representations for `TextChunk` instances.
-  4. Prepare embedding outputs for downstream vector indexing (FAISS).
+  2. Implement FAISS vector storage (`faiss-cpu`) and indexing module in `app/indexing/` or `app/storage/`.
+  3. Index `EmbeddingResult` vectors and build metadata storage mapping FAISS internal IDs back to `TextChunk` records and chunk IDs.
+  4. Implement basic similarity search (k-nearest neighbors) query interface.
+
