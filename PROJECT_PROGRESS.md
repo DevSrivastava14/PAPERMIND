@@ -41,7 +41,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 6 Complete
+- **Status:** Day 7 Complete
 - **Date:** October 13, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
@@ -245,26 +245,50 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 7 — October 13, 2026 (Completed)
+- **Completed Tasks:**
+  - **Generation models:** Added `app/generation/models.py` defining `AnswerResult` dataclass (`answer`, `citations`, `query`, `has_context`, `model_name`).
+  - **Provider-independent interface:** Added `app/generation/base.py` with abstract `BaseGenerator` class (`model_name` property, `generate(prompt)` method). Any LLM provider can be plugged in by subclassing `BaseGenerator` without modifying retrieval or orchestration logic.
+  - **Grounded prompt builder:** Added `app/generation/prompt_builder.py` with `build_grounded_prompt(query, context)`. Embeds a system instruction requiring the model to answer using only supplied evidence with inline citation markers, explicitly forbids fabrication, and delimits the evidence block (`--- EVIDENCE ---` / `--- END OF EVIDENCE ---`) from the question to reduce prompt-injection surface.
+  - **Answer generation orchestration:** Added `app/generation/answer_generator.py` with `AnswerGenerator` and convenience factory `build_answer_generator()`. Guards empty context by returning a clear insufficient-evidence response without calling the generator. On non-empty context, builds the prompt, invokes the generator, and returns `AnswerResult` with the answer and preserved `Citation` list copied from `RetrievedContext`.
+  - **Module exports:** Created `app/generation/__init__.py` re-exporting all public generation symbols.
+  - **Tests:** Added `tests/test_generation.py` (19 tests) using `FakeGenerator` — a deterministic in-process stub with no external LLM calls, no network access, and no model downloads. Covers: system instruction presence, evidence delimiter placement, formatted context embedding, question forwarding, prompt section ordering, `Answer:` marker, evidence-inside-delimiters check, `BaseGenerator` abstract-class guard, invalid generator type at construction, factory function, successful answer result structure, prompt forwarded to generator, citation metadata integrity, citation list independence from context, empty-context insufficient-evidence return, empty-context generator not called, empty/whitespace query `ValueError`, whitespace query generator not called, generator exception propagation.
+  - **Full test suite:** **63 passed** in 11.42s (19 in `test_generation.py`, 8 in `test_retrieval.py`, 9 in `test_indexing.py`, 10 in `test_embedder.py`, 9 in `test_pdf_parser.py`, 8 in `test_text_chunker.py`).
+- **Changed Files:**
+  - `app/generation/__init__.py` (Created)
+  - `app/generation/models.py` (Created)
+  - `app/generation/base.py` (Created)
+  - `app/generation/prompt_builder.py` (Created)
+  - `app/generation/answer_generator.py` (Created)
+  - `tests/test_generation.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest -q`: 63 passed in 11.42s
+  - `git status --short`: `?? app/generation/`, `?? tests/test_generation.py`, `M PROJECT_PROGRESS.md`
+- **Decisions Made:**
+  - Defined `BaseGenerator` as an abstract class rather than a `Protocol` so implementors receive a clear `TypeError` at construction if the interface is not satisfied — consistent with Days 4–6 patterns (`BaseEmbedder`).
+  - Delimited the evidence block with `--- EVIDENCE ---` / `--- END OF EVIDENCE ---` lines to reduce prompt-injection risk: instructions embedded inside retrieved document text cannot escape into the system instruction region.
+  - Returned `list(context.citations)` (a shallow copy) from `AnswerResult` so the caller cannot mutate result citations and inadvertently affect the originating context.
+  - The empty-context guard returns immediately before calling `build_grounded_prompt`, ensuring no partially constructed prompt is ever passed to the generator when no evidence exists.
+- **Remaining Limitations:**
+  - No real LLM provider implemented; a concrete `BaseGenerator` subclass must be written before live inference is possible.
+  - Generator is called once per query; streaming responses and multi-turn conversation are deferred.
+  - No per-document metadata filtering in retrieval; deferred to upcoming milestones.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 6 is complete.
-- **Next Planned Task (Day 7):** Grounded answer generation (**Planned, Not Started**).
-  - *Note: Do not start Day 7 implementation until explicitly instructed with "start day7".*
-  - **Day 7 Objective:** Build on the retrieval pipeline completed on Day 6 to generate answers from retrieved scientific-paper evidence. Connect prompt-ready retrieved context with an LLM abstraction while keeping answers strictly grounded in the provided evidence.
-  - **Planned Objectives:**
-    1. Define a clean answer-generation interface so the retrieval pipeline is not tightly coupled to a specific LLM provider.
-    2. Design a prompt that instructs the model to answer using retrieved evidence rather than unsupported prior knowledge.
-    3. Pass the query and `RetrievedContext.formatted_context` into the answer-generation layer.
-    4. Return a structured answer result that can preserve the answer and its associated citation metadata.
-    5. Handle empty retrieved context safely; do not fabricate evidence or citations.
-    6. Add focused unit tests using a mocked/fake generator where practical, avoiding paid API keys and real external LLM calls in tests.
-    7. Test grounded-prompt construction, answer output, empty-context behavior, and relevant error cases.
-    8. Keep the design compatible with the existing retrieval pipeline and the upcoming evaluation and multimodal stages.
-  - **Day 7 Boundaries:**
-    - Do not implement any Day 7 functionality now.
-    - Do not begin figure/table extraction or other Day 8 multimodal tasks.
+- **Status:** Day 7 is complete.
+- **Next Planned Task (Day 8):** Multimodal extraction — images, figures, and tables (**Planned, Not Started**).
+  - *Do not start Day 8 implementation until explicitly instructed with "start day8".*
+  - **Day 8 Objective:** Extend document ingestion to extract non-text elements (figures, tables, embedded images) from research PDFs and represent them alongside text chunks for downstream multimodal retrieval.
+  - **Day 8 Boundaries:**
+    - Do not implement any Day 8 functionality now.
     - Do not add unnecessary frameworks or features.
     - Do not alter the established roadmap or mark future days complete.
-    - Begin implementation only when the user explicitly says **"start day7"**.
+    - Begin implementation only when the user explicitly says **"start day8"**.
+
