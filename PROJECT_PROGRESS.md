@@ -41,8 +41,8 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 5 Complete
-- **Date:** October 12, 2026
+- **Status:** Day 6 Complete
+- **Date:** October 13, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
@@ -213,13 +213,58 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 6 — October 13, 2026 (Completed)
+- **Completed Tasks:**
+  - **Retrieval models:** Added `app/retrieval/models.py` defining `Citation` (`citation_label`, `source_filename`, `page_numbers`, `chunk_id`, `score`) and `RetrievedContext` (`formatted_context`, `citations`, `search_results`) dataclasses.
+  - **Citation context assembly:** Added `app/retrieval/assembler.py` with `CitationContextAssembler`, `format_page_reference()`, and convenience function `assemble_context()`. Formats retrieved chunks into clearly separated evidence blocks with citation markers (`[1] Source: filename (Page X)\n<chunk text>`).
+  - **Retrieval pipeline:** Added `app/retrieval/pipeline.py` with `RetrievalPipeline` class and convenience function `build_pipeline()`. Reuses existing `FAISSIndex.search()` interface with optional injected embedder, default `top_k`, and per-call override.
+  - **End-to-end workflow:** Validates query string, retrieves relevant chunks via existing FAISS index, and seamlessly formats search results into prompt-ready evidence blocks.
+  - **Citation provenance:** Preserves original source filename, exact 1-based PDF page numbers (never renumbered or invented), chunk ID, similarity score, and sequential citation labels (`[1]`, `[2]`, ...).
+  - **Edge cases:** Handled and verified empty search results (returns empty context without crashing), empty/whitespace queries (returns empty results without querying index), and invalid non-positive `top_k` values (raises descriptive `ValueError`).
+  - **Module exports:** Created `app/retrieval/__init__.py` re-exporting all public retrieval models and functions.
+  - **Tests:** Added comprehensive test suite in `tests/test_retrieval.py` (8 tests) using synthetic `SearchResult` objects and mock dependencies covering page reference formatting, citation/page metadata, normal evidence assembly, empty results, invalid `top_k`, whitespace queries, and query-to-context flow.
+  - **Test Suite Status:** Full test suite passes completely with **44 passed** in 10.19s (8 in `test_retrieval.py`, 9 in `test_indexing.py`, 10 in `test_embedder.py`, 9 in `test_pdf_parser.py`, 8 in `test_text_chunker.py`).
+- **Changed Files:**
+  - `app/retrieval/__init__.py` (Created)
+  - `app/retrieval/models.py` (Created)
+  - `app/retrieval/assembler.py` (Created)
+  - `app/retrieval/pipeline.py` (Created)
+  - `tests/test_retrieval.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest -q`: 44 passed in 10.19s
+  - `git status --short`: `?? app/retrieval/`, `?? tests/test_retrieval.py`, `M PROJECT_PROGRESS.md`
+- **Decisions Made:**
+  - Preserved original 1-based page numbers from chunk provenance; never fabricated or altered source page numbers.
+  - Reused existing `SearchResult`, `FAISSIndex`, and `BaseEmbedder` abstractions directly without modifying chunking, embedding, or indexing code.
+  - Used deterministic 1-based sequential citation markers matching structured citations for clean prompt injection and verifiable attribution.
+- **Remaining Limitations:**
+  - Dense semantic retrieval only; sparse BM25 and hybrid reranking deferred to Days 15–17.
+  - In-memory index without document-level metadata filtering; full metadata filtering deferred to upcoming milestones.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 5 is complete.
-- **Next Session Instructions (Day 6):**
-  1. Read this progress file (`PROJECT_PROGRESS.md`).
-  2. Implement baseline retrieval pipeline and citation assembler connecting query -> search -> formatted context with source/page citations.
-  3. Prepare retrieved context prompt formatting for downstream LLM generation.
-
+- **Status:** Day 6 is complete.
+- **Next Planned Task (Day 7):** Grounded answer generation (**Planned, Not Started**).
+  - *Note: Do not start Day 7 implementation until explicitly instructed with "start day7".*
+  - **Day 7 Objective:** Build on the retrieval pipeline completed on Day 6 to generate answers from retrieved scientific-paper evidence. Connect prompt-ready retrieved context with an LLM abstraction while keeping answers strictly grounded in the provided evidence.
+  - **Planned Objectives:**
+    1. Define a clean answer-generation interface so the retrieval pipeline is not tightly coupled to a specific LLM provider.
+    2. Design a prompt that instructs the model to answer using retrieved evidence rather than unsupported prior knowledge.
+    3. Pass the query and `RetrievedContext.formatted_context` into the answer-generation layer.
+    4. Return a structured answer result that can preserve the answer and its associated citation metadata.
+    5. Handle empty retrieved context safely; do not fabricate evidence or citations.
+    6. Add focused unit tests using a mocked/fake generator where practical, avoiding paid API keys and real external LLM calls in tests.
+    7. Test grounded-prompt construction, answer output, empty-context behavior, and relevant error cases.
+    8. Keep the design compatible with the existing retrieval pipeline and the upcoming evaluation and multimodal stages.
+  - **Day 7 Boundaries:**
+    - Do not implement any Day 7 functionality now.
+    - Do not begin figure/table extraction or other Day 8 multimodal tasks.
+    - Do not add unnecessary frameworks or features.
+    - Do not alter the established roadmap or mark future days complete.
+    - Begin implementation only when the user explicitly says **"start day7"**.
