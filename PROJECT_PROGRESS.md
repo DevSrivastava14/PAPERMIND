@@ -41,7 +41,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 8 Complete
+- **Status:** Day 9 Complete
 - **Date:** October 14, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
@@ -311,17 +311,56 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 9 — October 14, 2026 (Completed)
+- **Completed Tasks:**
+  - **Equation/formula model:** Created `ExtractedEquation` dataclass in `app/multimodal/models.py` (with aliases `EquationElement` and `ExtractedFormula`) representing mathematical expressions with `equation_id`, `source_filename`, 1-based `page_number`, 0-based `equation_index`, `text`, `equation_label`, `bbox`, and `is_display`.
+  - **Equation extraction component:** Implemented `app/multimodal/equation_extractor.py` containing `EquationExtractor` and clean `extract_equations(pdf_path)` function using PyMuPDF (`pymupdf`).
+  - **Pattern classification & heuristics:** Built robust heuristic classifier distinguishing mathematical formulas from prose:
+    - Numbered equations ending with labels like `(1)`, `(2.1)`, `[1]`, `Eq. (1)`.
+    - Mathematical relations and operators (`=`, `≈`, `≤`, `≥`, `≠`, `:=`, `∝`, etc.).
+    - Unicode math symbols (`∑`, `∫`, `∏`, `√`, `∂`, `∇`, Greek letters) and LaTeX macros (`\sum`, `\int`, `\frac`, etc.).
+    - Multiline equation continuation detection with bounding box unioning.
+    - False positive rejection for prose sentences and figure/table captions (`Figure 1:`, `Table 1:`).
+  - **Module exports:** Updated `app/multimodal/__init__.py` to re-export all equation extraction models and functions.
+  - **Provenance & deterministic identity:** Preserves exact 1-based PDF page provenance, deterministic sequential indexing (`equation_index`), and unique IDs (`{filename}#page_{page}_eq_{index}`).
+  - **Edge cases handled:** Handled PDFs with no equations cleanly returning an empty list `[]`, missing file raising `FileNotFoundError`, and invalid/corrupted PDFs raising `ValueError`.
+  - **Preserved existing pipeline:** Existing ingestion, chunking, embeddings, FAISS, retrieval, and generation code was not modified.
+  - **Tests:** Added 11 focused unit and integration tests in `tests/test_equation_extractor.py`.
+  - **Full test suite:** **86 passed** in 16.36s (11 in `test_equation_extractor.py`, 12 in `test_multimodal.py`, 19 in `test_generation.py`, 8 in `test_retrieval.py`, 9 in `test_indexing.py`, 10 in `test_embedder.py`, 9 in `test_pdf_parser.py`, 8 in `test_text_chunker.py`).
+  - **Manual verification against `data/sample_paper.pdf`:** Confirmed 0 equations detected across all 7 pages without error or false positives, accurately reflecting the survey nature of the sample paper.
+- **Changed Files:**
+  - `app/multimodal/models.py` (Modified)
+  - `app/multimodal/equation_extractor.py` (Created)
+  - `app/multimodal/__init__.py` (Modified)
+  - `tests/test_equation_extractor.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_equation_extractor.py -v`: 11 passed in 0.70s
+  - `.\.venv\Scripts\python -m pytest -q`: 86 passed in 16.36s
+- **Decisions Made:**
+  - Reused PyMuPDF (`pymupdf`) text block/span analysis without introducing heavy math/OCR dependencies (like pix2tex or sympy).
+  - Implemented `ExtractedEquation` with strict validation for 1-based `page_number`, non-negative `equation_index`, non-empty IDs, and non-empty equation text.
+  - Provided property accessors (`equation_text`, `expression`, `content`) and aliases (`EquationElement`, `ExtractedFormula`) for flexible downstream consumption.
+  - Handled multiline equations by checking for leading operators and unioning spatial bounding boxes.
+- **Remaining Limitations:**
+  - Extraction relies on text-layer elements; purely rasterized or bitmap-embedded equations require visual/OCR extraction (deferred to future multimodal days).
+  - Table parsing, caption association, and unified multimodal representation deferred to Days 10–14.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 8 is complete.
-- **Next Planned Task (Day 9):** Multimodal extraction — continuing Days 8–14 roadmap (**Planned, Not Started**).
-  - *Do not start Day 9 implementation until explicitly instructed.*
+- **Status:** Day 9 is complete.
+- **Next Planned Task (Day 10):** Multimodal extraction — tables (**Planned, Not Started**).
+  - *Do not start Day 10 implementation until explicitly instructed.*
   - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation.
-  - **Day 9 Boundaries:**
-    - Do not implement any Day 9 functionality now.
+  - **Day 10 Boundaries:**
+    - Do not implement any Day 10 functionality now.
     - Do not add unnecessary frameworks or features.
     - Do not alter the established roadmap or mark future days complete.
+
 
 

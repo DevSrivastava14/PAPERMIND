@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 
 @dataclass
@@ -91,3 +91,90 @@ class ExtractedImage:
 
 VisualElement = ExtractedImage
 ExtractedVisualElement = ExtractedImage
+
+
+@dataclass
+class ExtractedEquation:
+    """Represents an extracted mathematical formula or equation from a PDF page.
+
+    Attributes:
+        equation_id: Unique deterministic identifier for the equation (e.g. 'paper.pdf#page_1_eq_0').
+        source_filename: Name of the originating PDF document file.
+        page_number: 1-based page number where the equation appeared.
+        equation_index: 0-based index of the equation on the given page.
+        text: Plain-text / LaTeX representation of the equation.
+        equation_label: Optional label or number associated with the equation (e.g. '(1)', '(2.3)').
+        bbox: Optional spatial bounding box (x0, y0, x1, y1) on the page in PDF points.
+        is_display: True if the equation is a standalone display equation, False if inline.
+    """
+
+    equation_id: str
+    source_filename: str
+    page_number: int
+    equation_index: int
+    text: str = ""
+    equation_label: Optional[str] = None
+    bbox: Optional[Tuple[float, float, float, float]] = None
+    is_display: bool = True
+
+    def __init__(
+        self,
+        equation_id: str,
+        source_filename: str,
+        page_number: int,
+        equation_index: int,
+        text: Optional[str] = None,
+        equation_label: Optional[str] = None,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        is_display: bool = True,
+        *,
+        equation_text: Optional[str] = None,
+        expression: Optional[str] = None,
+    ) -> None:
+        self.equation_id = equation_id
+        self.source_filename = source_filename
+        self.page_number = page_number
+        self.equation_index = equation_index
+
+        actual_text = (
+            text
+            if text is not None
+            else (equation_text if equation_text is not None else expression)
+        )
+        self.text = actual_text if actual_text is not None else ""
+        self.equation_label = equation_label
+        self.bbox = bbox
+        self.is_display = is_display
+
+        self._validate()
+
+    def _validate(self) -> None:
+        if not self.equation_id or not str(self.equation_id).strip():
+            raise ValueError("equation_id cannot be empty")
+        if not self.source_filename or not str(self.source_filename).strip():
+            raise ValueError("source_filename cannot be empty")
+        if self.page_number < 1:
+            raise ValueError(f"page_number must be >= 1 (1-based), got {self.page_number}")
+        if self.equation_index < 0:
+            raise ValueError(f"equation_index must be >= 0, got {self.equation_index}")
+        if not self.text or not str(self.text).strip():
+            raise ValueError("equation text cannot be empty")
+
+    @property
+    def equation_text(self) -> str:
+        """Alias for text."""
+        return self.text
+
+    @property
+    def expression(self) -> str:
+        """Alias for text."""
+        return self.text
+
+    @property
+    def content(self) -> str:
+        """Alias for text."""
+        return self.text
+
+
+EquationElement = ExtractedEquation
+ExtractedFormula = ExtractedEquation
