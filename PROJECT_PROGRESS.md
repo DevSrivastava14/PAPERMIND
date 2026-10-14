@@ -41,8 +41,8 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 7 Complete
-- **Date:** October 13, 2026
+- **Status:** Day 8 Complete
+- **Date:** October 14, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
@@ -278,17 +278,50 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 8 — October 14, 2026 (Completed)
+- **Completed Tasks:**
+  - **Multimodal image extraction:** Implemented embedded image/figure extraction from research PDFs using PyMuPDF (`pymupdf`).
+  - **New module:** Created `app/multimodal/` module with:
+    - `app/multimodal/models.py`: Defines `ExtractedImage` dataclass (with aliases `VisualElement` and `ExtractedVisualElement`) representing an extracted visual element with `image_id`, `source_filename`, 1-based `page_number`, 0-based `image_index`, `image_data` (bytes), `image_path` (reference), format, and dimensions.
+    - `app/multimodal/image_extractor.py`: Defines `ImageExtractor` and clean `extract_images(pdf_path, output_dir=None)` function detecting and extracting embedded images across pages.
+    - `app/multimodal/__init__.py`: Re-exports public multimodal classes and functions.
+  - **Page provenance & deterministic indexing:** Preserved exact 1-based PDF page numbers (`page_number >= 1`) and deterministic image indexing and identity (`f"{path.name}#page_{page_idx}_img_{img_idx}"`).
+  - **Edge cases handled:** Handled PDFs with no images cleanly returning an empty list `[]`, missing file raising `FileNotFoundError`, and invalid/corrupted PDFs raising `ValueError`.
+  - **Sample paper extraction:** Extracted 13 embedded images/figures from `data/sample_paper.pdf`.
+  - **Manual verification:** Confirmed extracted images match the corresponding figures/pages in `sample_paper.pdf`.
+  - **Integrity preserved:** Existing ingestion, chunking, embeddings, indexing, retrieval, and generation code was not modified.
+  - **Tests:** Added 12 focused unit and integration tests in `tests/test_multimodal.py`.
+  - **Full test suite:** **75 passed** in 11.79s (12 in `test_multimodal.py`, 19 in `test_generation.py`, 8 in `test_retrieval.py`, 9 in `test_indexing.py`, 10 in `test_embedder.py`, 9 in `test_pdf_parser.py`, 8 in `test_text_chunker.py`).
+- **Changed Files:**
+  - `app/multimodal/__init__.py` (Created)
+  - `app/multimodal/models.py` (Created)
+  - `app/multimodal/image_extractor.py` (Created)
+  - `tests/test_multimodal.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest -q`: 75 passed in 11.79s
+- **Decisions Made:**
+  - Reused existing PyMuPDF (`pymupdf`) dependency for image extraction without introducing unnecessary new frameworks.
+  - Implemented `ExtractedImage` with strict validation for 1-based `page_number`, non-negative `image_index`, non-empty IDs, and `bytes` payload.
+  - Maintained backward compatibility via aliases `VisualElement` and `ExtractedVisualElement` and accessor properties `image_bytes`, `path`, and `size`.
+  - Kept image extraction in-memory by default, with optional file persistence via `output_dir`.
+- **Remaining Limitations:**
+  - Table extraction, visual encoding/multimodal embeddings, and OCR deferred to upcoming days in the multimodal milestone (Days 8–14).
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 7 is complete.
-- **Next Planned Task (Day 8):** Multimodal extraction — images, figures, and tables (**Planned, Not Started**).
-  - *Do not start Day 8 implementation until explicitly instructed with "start day8".*
-  - **Day 8 Objective:** Extend document ingestion to extract non-text elements (figures, tables, embedded images) from research PDFs and represent them alongside text chunks for downstream multimodal retrieval.
-  - **Day 8 Boundaries:**
-    - Do not implement any Day 8 functionality now.
+- **Status:** Day 8 is complete.
+- **Next Planned Task (Day 9):** Multimodal extraction — continuing Days 8–14 roadmap (**Planned, Not Started**).
+  - *Do not start Day 9 implementation until explicitly instructed.*
+  - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation.
+  - **Day 9 Boundaries:**
+    - Do not implement any Day 9 functionality now.
     - Do not add unnecessary frameworks or features.
     - Do not alter the established roadmap or mark future days complete.
-    - Begin implementation only when the user explicitly says **"start day8"**.
+
 
