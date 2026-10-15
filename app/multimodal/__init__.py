@@ -23,6 +23,40 @@ from app.multimodal.models import (
     VisualElement,
 )
 from app.multimodal.table_extractor import TableExtractor, extract_tables
+from app.multimodal.representation import (
+    ElementType,
+    ELEMENT_TYPE_CAPTION,
+    ELEMENT_TYPE_EQUATION,
+    ELEMENT_TYPE_IMAGE,
+    ELEMENT_TYPE_TABLE,
+    ELEMENT_TYPE_TEXT,
+    MultimodalElement,
+    SUPPORTED_ELEMENT_TYPES,
+    attach_caption_matches,
+    from_caption,
+    from_equation,
+    from_image,
+    from_table,
+    from_text_chunk,
+    to_multimodal_element,
+)
+from app.multimodal.embedding import (
+    BaseMultimodalEmbedder,
+    BaseVisualEmbedder,
+    MultimodalEmbeddedElement,
+    MultimodalEmbedder,
+    MultimodalEmbeddingResult,
+    SentenceTransformerVisualEmbedder,
+    embed_multimodal_elements,
+    get_multimodal_embedder,
+    reset_multimodal_embedder,
+)
+from app.multimodal.collection import (
+    MultimodalCollection,
+    MultimodalDocument,
+    assemble_multimodal_collection,
+    assemble_multimodal_document,
+)
 
 __all__ = [
     # Image / visual
@@ -53,4 +87,38 @@ __all__ = [
     "CaptionExtractionResult",
     "CaptionExtractor",
     "extract_captions",
+    # Unified Representation
+    "ElementType",
+    "ELEMENT_TYPE_CAPTION",
+    "ELEMENT_TYPE_EQUATION",
+    "ELEMENT_TYPE_IMAGE",
+    "ELEMENT_TYPE_TABLE",
+    "ELEMENT_TYPE_TEXT",
+    "SUPPORTED_ELEMENT_TYPES",
+    "MultimodalElement",
+    "from_caption",
+    "from_equation",
+    "from_image",
+    "from_table",
+    "from_text_chunk",
+    "to_multimodal_element",
+    "attach_caption_matches",
+    # Multimodal Embedding
+    "BaseVisualEmbedder",
+    "SentenceTransformerVisualEmbedder",
+    "MultimodalEmbeddedElement",
+    "MultimodalEmbeddingResult",
+    "BaseMultimodalEmbedder",
+    "MultimodalEmbedder",
+    "get_multimodal_embedder",
+    "reset_multimodal_embedder",
+    "embed_multimodal_elements",
+    # Collection & Assembly
+    "MultimodalDocument",
+    "MultimodalCollection",
+    "assemble_multimodal_document",
+    "assemble_multimodal_collection",
 ]
+
+
+

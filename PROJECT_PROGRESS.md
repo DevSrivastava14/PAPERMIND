@@ -33,6 +33,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 | **Data Validation** | Pydantic | Planned (Unverified) |
 | **Embeddings** | Sentence Transformers (`sentence-transformers==6.1.0`) | Verified (Installed in `.venv`) |
 | **Vector Storage** | FAISS (`faiss-cpu==1.15.1`) | Verified (Installed in `.venv`) |
+| **Image Processing** | Pillow (`pillow==12.3.0`) | Verified (Installed in `.venv`) |
 | **LLM Inference** | LLM Provider or Local Alternative | Planned (Unverified) |
 | **Evaluation** | Ragas | Planned (Unverified) |
 | **Observability** | Langfuse | Planned (Unverified) |
@@ -41,12 +42,12 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 11 Complete
-- **Date:** October 15, 2026
+- **Status:** Day 12 Complete
+- **Date:** October 16, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
-  - `requirements.txt`: Pinned to `pymupdf==1.28.2`, `pytest==9.1.1`, `sentence-transformers==6.1.0`, and `faiss-cpu==1.15.1`
+  - `requirements.txt`: Pinned to `pymupdf==1.28.2`, `pytest==9.1.1`, `sentence-transformers==6.1.0`, `faiss-cpu==1.15.1`, and `pillow==12.3.0`
   - `.gitignore`: Configured and verified (ignores `.venv/`, pytest/Python caches, `data/*.pdf`, `data/processed/`, `data/uploads/`, `.env*` except `.env.example`, and logs)
   - `.env.example`: Contains `APP_ENV=development`
   - `README.md`: Intentionally kept empty until project completion (ComputeGrid workflow)
@@ -413,17 +414,65 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 12 — October 16, 2026 (Completed)
+- **Completed Tasks:**
+  - **Task 1: Unified Multimodal Element Representation (`app/multimodal/representation.py`)**
+    - Created explicit `ElementType` str-backed Enum supporting all scientific-paper modalities: `text`, `image`, `caption`, `table`, and `equation` (with automatic synonym mapping for `figure` and `formula`).
+    - Implemented `MultimodalElement` dataclass preserving exact provenance (`source_filename`, 1-based `page_number >= 1`, `element_id`), modality-aware `content` (strings for text/table/equation/caption, raw binary bytes or path references for images), vector `embedding` slot, `related_element_ids` relationship links, and modality-specific `metadata`.
+    - Added dedicated adapter functions without modifying existing extractors: `from_text_chunk`, `from_image`, `from_caption`, `from_table`, `from_equation`, as well as universal `to_multimodal_element` and classmethod adapters.
+    - Preserved Day 11 `CaptionMatch` relationships via bidirectional `attach_caption_matches` and direct `matches` injection.
+    - Added 24 unit tests in `tests/test_representation.py`.
+  - **Task 2: Modality-Aware Multimodal Embedding Layer (`app/multimodal/embedding.py`)**
+    - Created abstract interfaces `BaseVisualEmbedder` and `BaseMultimodalEmbedder`.
+    - Reused existing `SentenceTransformerEmbedder` (`sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions) for text-like elements: plain text chunks, caption text, Markdown formatted tables, and LaTeX equations.
+    - Implemented `SentenceTransformerVisualEmbedder` using local pretrained `sentence-transformers/clip-ViT-B-32` (512 dimensions) supporting image bytes, file paths, and PIL Images with full vector validation (finite float32, dimensionality, count).
+    - Designed `MultimodalEmbedder` to handle mixed-modality batches: elements are partitioned by modality, dispatched to modality-appropriate encoders in batches, and reconstructed into their original input sequence preserving 1:1 element mapping.
+    - Built `MultimodalEmbeddedElement` and `MultimodalEmbeddingResult` container objects with type-filtered vector extraction (`get_vectors_by_type`) and strict dimensional safety guards (`to_numpy_matrix`).
+    - Added 22 unit tests in `tests/test_multimodal_embedding.py`.
+  - **Task 3: Multimodal Collection / Assembly and Integration (`app/multimodal/collection.py`)**
+    - Created `MultimodalDocument` (aliased as `MultimodalCollection`) representing a scientific research paper as an indexed collection of unified multimodal elements.
+    - Implemented element access and graph traversal methods: `get_by_id`, `get_by_type`, `get_by_page`, `get_related`, `get_embedding`, `embedded_elements()`, and `get_vectors_by_type()`.
+    - Implemented `assemble_multimodal_document()` (and alias `assemble_multimodal_collection()`) accepting heterogeneous extracted items (`text_chunks`, `images`, `captions`, `tables`, `equations`, `caption_matches`) and producing a unified document while validating element ID uniqueness and establishing bidirectional links (image <-> caption, table <-> caption).
+    - Integrated with `MultimodalEmbedder` via `doc.embed()` to associate vectors with elements while keeping vector spaces strictly separated (384-d text vs 512-d image).
+    - Added 6 focused integration tests in `tests/test_multimodal_collection.py`.
+- **Changed Files:**
+  - `app/multimodal/representation.py` (Created)
+  - `app/multimodal/embedding.py` (Created)
+  - `app/multimodal/collection.py` (Created)
+  - `app/multimodal/__init__.py` (Modified)
+  - `requirements.txt` (Modified — added `pillow==12.3.0`)
+  - `tests/test_representation.py` (Created)
+  - `tests/test_multimodal_embedding.py` (Created)
+  - `tests/test_multimodal_collection.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_representation.py -v`: **24 passed in 0.41s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_embedding.py -v`: **22 passed in 0.69s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_collection.py -v`: **6 passed in 0.43s**
+  - `.\.venv\Scripts\python -m pytest -q`: **188 passed in 16.80s** (all 136 baseline tests + 52 new Day 12 tests)
+- **Decisions Made:**
+  - **Separate Embedding Spaces:** Kept text-like embeddings (384-d via `all-MiniLM-L6-v2`) and visual embeddings (512-d via `clip-ViT-B-32`) strictly separated without artificial concatenation or premature projection layers. Downstream retrieval (Days 13-14) will manage modality-specific indices.
+  - **Modality-Aware Content:** Text, table, equation, and caption representations embed their meaningful textual representations; images embed raw bytes or image references.
+  - **Exact Provenance & Identity:** Enforced strict 1-based page numbers (`>= 1`), non-empty strings for IDs/filenames, and uniqueness validation in `MultimodalDocument`.
+  - **Relationship Preservation:** Reused Day 11 `CaptionMatch` structures without modifications, enabling bidirectional traversals (`doc.get_related("img_id")` -> `[cap_elem]`, `doc.get_related("cap_id")` -> `[img_elem]`, `doc.get_related("tbl_id")` -> `[cap_elem]`).
+  - **Test Isolation:** Used mock embedders in unit/integration tests to ensure the entire test suite executes in ~16s without downloading multi-hundred-megabyte weights on every run.
+- **Remaining Limitations:**
+  - FAISS index currently only indexes text chunks; multimodal vector indexing and multimodal retrieval remain to be implemented in Days 13–14.
+  - Cross-modal queries (e.g. text query matching an image directly) require either shared-space CLIP text encoding or separate multimodal index partitions.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 11 is complete.
-- **Next Planned Task (Day 12):** Multimodal extraction — visual encoding / multimodal embeddings (**Planned, Not Started**).
-  - *Do not start Day 12 implementation until explicitly instructed.*
-  - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation.
-  - **Day 12 Boundaries:**
-    - Do not implement any Day 12 functionality now.
-    - Do not add unnecessary frameworks or features.
+- **Status:** Day 12 is complete.
+- **Next Planned Task (Day 13):** Multimodal retrieval / indexing / hybrid multimodal search (**Planned, Not Started**).
+  - *Do not start Day 13 implementation until explicitly instructed.*
+  - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation; multimodal vector indexing and retrieval.
+  - **Day 13 Boundaries:**
+    - Do not implement any Day 13 functionality now.
     - Do not alter the established roadmap or mark future days complete.
 
 
