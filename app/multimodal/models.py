@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 
 
 @dataclass
@@ -178,3 +179,186 @@ class ExtractedEquation:
 
 EquationElement = ExtractedEquation
 ExtractedFormula = ExtractedEquation
+
+
+@dataclass
+class ExtractedTable:
+    """Represents an extracted structured table from a PDF page.
+
+    Attributes:
+        table_id: Unique deterministic identifier for the table (e.g. 'paper.pdf#page_1_table_0').
+        source_filename: Name of the originating PDF document file.
+        page_number: 1-based page number where the table appeared.
+        table_index: 0-based index of the table on the given page.
+        rows: 2D list of strings containing cell contents for each row.
+        num_rows: Number of rows in the table.
+        num_cols: Number of columns in the table.
+        content: Formatted text/markdown representation of the table.
+        bbox: Optional spatial bounding box (x0, y0, x1, y1) on the page in PDF points.
+        headers: Optional list of column header strings.
+    """
+
+    table_id: str
+    source_filename: str
+    page_number: int
+    table_index: int
+    rows: List[List[str]] = field(default_factory=list)
+    num_rows: int = 0
+    num_cols: int = 0
+    content: str = ""
+    bbox: Optional[Tuple[float, float, float, float]] = None
+    headers: Optional[List[str]] = None
+
+    def __init__(
+        self,
+        table_id: str,
+        source_filename: str,
+        page_number: int,
+        table_index: int,
+        rows: Optional[List[List[str]]] = None,
+        num_rows: Optional[int] = None,
+        num_cols: Optional[int] = None,
+        content: Optional[str] = None,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        headers: Optional[List[str]] = None,
+        *,
+        table_content: Optional[str] = None,
+        markdown: Optional[str] = None,
+        text: Optional[str] = None,
+        data: Optional[List[List[str]]] = None,
+        columns: Optional[List[str]] = None,
+    ) -> None:
+        self.table_id = table_id
+        self.source_filename = source_filename
+        self.page_number = page_number
+        self.table_index = table_index
+
+        actual_rows = rows if rows is not None else (data if data is not None else [])
+        if not isinstance(actual_rows, list):
+            raise TypeError(f"rows must be a list of lists, got {type(actual_rows).__name__}")
+        self.rows = [
+            [str(cell).strip() if cell is not None else "" for cell in row]
+            if isinstance(row, (list, tuple))
+            else [str(row).strip()]
+            for row in actual_rows
+        ]
+
+
+        self.num_rows = num_rows if num_rows is not None else len(self.rows)
+        self.num_cols = (
+            num_cols
+            if num_cols is not None
+            else (max((len(r) for r in self.rows), default=0))
+        )
+
+        actual_content = content or table_content or markdown or text
+        if actual_content is not None and str(actual_content).strip():
+            self.content = str(actual_content).strip()
+        else:
+            self.content = self._rows_to_markdown(self.rows)
+
+        self.bbox = bbox
+
+        actual_headers = headers if headers is not None else columns
+        if actual_headers is not None:
+            self.headers = [str(h).strip() for h in actual_headers]
+        elif self.rows:
+            self.headers = list(self.rows[0])
+        else:
+            self.headers = []
+
+        self._validate()
+
+    @staticmethod
+    def _rows_to_markdown(rows: List[List[str]]) -> str:
+        """Converts a 2D matrix of row cells into a standard markdown table string."""
+        if not rows:
+            return ""
+        max_cols = max(len(r) for r in rows)
+        if max_cols == 0:
+            return ""
+
+        padded_rows = [r + [""] * (max_cols - len(r)) for r in rows]
+        lines = []
+        header = padded_rows[0]
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("| " + " | ".join("---" for _ in range(max_cols)) + " |")
+        for row in padded_rows[1:]:
+            lines.append("| " + " | ".join(row) + " |")
+        return "\n".join(lines)
+
+    def _validate(self) -> None:
+        if not self.table_id or not str(self.table_id).strip():
+            raise ValueError("table_id cannot be empty")
+        if not self.source_filename or not str(self.source_filename).strip():
+            raise ValueError("source_filename cannot be empty")
+        if self.page_number < 1:
+            raise ValueError(f"page_number must be >= 1 (1-based), got {self.page_number}")
+        if self.table_index < 0:
+            raise ValueError(f"table_index must be >= 0, got {self.table_index}")
+        if not isinstance(self.rows, list):
+            raise TypeError(f"rows must be a list of lists, got {type(self.rows).__name__}")
+
+    @property
+    def table_content(self) -> str:
+        """Alias for content."""
+        return self.content
+
+    @property
+    def text(self) -> str:
+        """Alias for content."""
+        return self.content
+
+    @property
+    def markdown(self) -> str:
+        """Alias for content."""
+        return self.content
+
+    @property
+    def row_count(self) -> int:
+        """Alias for num_rows."""
+        return self.num_rows
+
+    @property
+    def col_count(self) -> int:
+        """Alias for num_cols."""
+        return self.num_cols
+
+    @property
+    def cells(self) -> List[List[str]]:
+        """Alias for rows."""
+        return self.rows
+
+    @property
+    def data(self) -> List[List[str]]:
+        """Alias for rows."""
+        return self.rows
+
+    @property
+    def columns(self) -> List[str]:
+        """Header column names or empty list."""
+        return self.headers if self.headers is not None else []
+
+    def to_markdown(self) -> str:
+        """Returns the table in Markdown format."""
+        return self.content
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the table to a dictionary representation."""
+        return {
+            "table_id": self.table_id,
+            "source_filename": self.source_filename,
+            "page_number": self.page_number,
+            "table_index": self.table_index,
+            "num_rows": self.num_rows,
+            "num_cols": self.num_cols,
+            "rows": self.rows,
+            "headers": self.headers,
+            "content": self.content,
+            "bbox": self.bbox,
+        }
+
+
+TableElement = ExtractedTable
+ExtractedTableElement = ExtractedTable
+

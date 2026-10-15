@@ -5,9 +5,13 @@ from app.multimodal.models import (
     ExtractedEquation,
     ExtractedFormula,
     ExtractedImage,
+    ExtractedTable,
+    ExtractedTableElement,
     ExtractedVisualElement,
+    TableElement,
     VisualElement,
 )
+from app.multimodal.table_extractor import TableExtractor, extract_tables
 
 __all__ = [
     "ExtractedImage",
@@ -20,4 +24,9 @@ __all__ = [
     "ExtractedFormula",
     "EquationExtractor",
     "extract_equations",
+    "ExtractedTable",
+    "TableElement",
+    "ExtractedTableElement",
+    "TableExtractor",
+    "extract_tables",
 ]

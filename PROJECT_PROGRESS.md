@@ -41,8 +41,8 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 9 Complete
-- **Date:** October 14, 2026
+- **Status:** Day 10 Complete
+- **Date:** October 15, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
@@ -349,18 +349,50 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 10 — October 15, 2026 (Completed)
+- **Completed Tasks:**
+  - **Structured table model:** Created `ExtractedTable` dataclass in `app/multimodal/models.py` (with aliases `TableElement` and `ExtractedTableElement`) representing structured tabular data with `table_id`, `source_filename`, 1-based `page_number`, 0-based `table_index`, `rows` (2D list of cells), `num_rows`, `num_cols`, `content` (markdown/text representation), `bbox` (spatial bounding box in PDF points), and `headers`.
+  - **Table extraction component:** Implemented `app/multimodal/table_extractor.py` containing `TableExtractor` and clean `extract_tables(pdf_path, **kwargs)` function using existing PyMuPDF (`pymupdf`) table detection capabilities without adding heavy external OCR or table extraction frameworks.
+  - **Module exports:** Updated `app/multimodal/__init__.py` to re-export all table extraction models and functions (`ExtractedTable`, `TableElement`, `ExtractedTableElement`, `TableExtractor`, `extract_tables`).
+  - **Page provenance & deterministic identity:** Preserves exact 1-based PDF page provenance (`page_number >= 1`), deterministic sequential table indexing (`table_index`), and unique IDs (`{source_filename}#page_{page_number}_table_{table_index}`).
+  - **Edge cases handled:** Handled PDFs with no tables cleanly returning an empty list `[]`, missing file raising `FileNotFoundError`, and invalid/corrupted PDFs raising `ValueError`.
+  - **Preserved existing pipeline:** Existing ingestion, chunking, embeddings, FAISS, retrieval, generation, and equation/image extraction code was not modified.
+  - **Tests:** Added 13 focused unit and integration tests in `tests/test_table_extractor.py`.
+  - **Test results:** 13 passed in `test_table_extractor.py`, 23 passed in `test_multimodal.py` + `test_equation_extractor.py`.
+  - **Verification against `data/sample_paper.pdf`:** Confirmed 0 tables detected across all 7 pages without error, accurately reflecting the absence of tabular grids in the sample paper.
+- **Changed Files:**
+  - `app/multimodal/models.py` (Modified)
+  - `app/multimodal/table_extractor.py` (Created)
+  - `app/multimodal/__init__.py` (Modified)
+  - `tests/test_table_extractor.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_table_extractor.py -v`: 13 passed in 2.18s
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal.py tests/test_equation_extractor.py -v`: 23 passed in 0.97s
+- **Decisions Made:**
+  - Reused PyMuPDF's native `find_tables()` API (`TableFinder` and `Table` objects) without introducing heavy table frameworks (e.g., camelot, tabula, paddleocr).
+  - Implemented `ExtractedTable` with strict validation for 1-based `page_number`, non-negative `table_index`, non-empty IDs, and list-of-lists `rows`.
+  - Built-in automatic markdown formatting (`_rows_to_markdown`) when custom markdown content is not supplied.
+  - Provided property accessors (`table_content`, `text`, `markdown`, `row_count`, `col_count`, `cells`, `data`, `columns`) and aliases (`TableElement`, `ExtractedTableElement`) for flexible downstream consumption.
+- **Remaining Limitations:**
+  - Captions, table-to-caption relationships, visual embeddings, and unified multimodal representation deferred to Days 11–14.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 9 is complete.
-- **Next Planned Task (Day 10):** Multimodal extraction — tables (**Planned, Not Started**).
-  - *Do not start Day 10 implementation until explicitly instructed.*
+- **Status:** Day 10 is complete.
+- **Next Planned Task (Day 11):** Multimodal extraction — captions and figure/table association (**Planned, Not Started**).
+  - *Do not start Day 11 implementation until explicitly instructed.*
   - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation.
-  - **Day 10 Boundaries:**
-    - Do not implement any Day 10 functionality now.
+  - **Day 11 Boundaries:**
+    - Do not implement any Day 11 functionality now.
     - Do not add unnecessary frameworks or features.
     - Do not alter the established roadmap or mark future days complete.
+
 
 
 
