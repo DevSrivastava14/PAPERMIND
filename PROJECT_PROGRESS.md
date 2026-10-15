@@ -41,7 +41,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 10 Complete
+- **Status:** Day 11 Complete
 - **Date:** October 15, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
@@ -380,18 +380,52 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 11 — October 15, 2026 (Completed)
+- **Completed Tasks:**
+  - **Caption model:** Added `ExtractedCaption` dataclass in `app/multimodal/models.py` (with aliases `CaptionElement` and `ExtractedCaptionElement`) representing a figure or table caption with `caption_id`, `source_filename`, 1-based `page_number`, 0-based `caption_index`, `caption_type` (`'figure'` or `'table'`), `text`, `label`, and `bbox`. Added module-level sentinel constants `CAPTION_TYPE_FIGURE = 'figure'` and `CAPTION_TYPE_TABLE = 'table'`.
+  - **Relationship model:** Added `CaptionMatch` dataclass representing a lightweight, deterministic spatial link between a visual element (`image_id` / `table_id`) and its caption (`caption_id`), carrying `proximity_pts`, `source_filename`, and `page_number`.
+  - **Caption extraction component:** Implemented `app/multimodal/caption_extractor.py` with `CaptionExtractor`, `CaptionExtractionResult`, and convenience function `extract_captions(pdf_path, images=None, tables=None)` using PyMuPDF text-block scanning and spatial bbox proximity.
+  - **Detection strategy:** Two-pass per page — (1) scan text blocks whose first line matches a `Figure|Fig.|Table|Tab.` + number pattern; (2) spatial association pairs each caption with the nearest image block (for figure captions) or supplied `ExtractedTable` bbox (for table captions) within a configurable `max_proximity_pts` threshold (default 72 pts).
+  - **Prefix support:** Detects `Figure N`, `Fig. N`, `FIG N`, `Table N`, `Tab. N`, `TAB N` — normalised to `'figure'`/`'table'` type and canonical `'Figure N'`/`'Table N'` label.
+  - **Module exports:** Updated `app/multimodal/__init__.py` to re-export all caption symbols (`CAPTION_TYPE_FIGURE`, `CAPTION_TYPE_TABLE`, `ExtractedCaption`, `CaptionElement`, `ExtractedCaptionElement`, `CaptionMatch`, `CaptionExtractionResult`, `CaptionExtractor`, `extract_captions`).
+  - **Sample paper verification:** `data/sample_paper.pdf` → 3 figure captions detected (FIGURE 1, FIGURE 2, FIGURE 3) across pages 2 and 5, all correctly classified as `'figure'`.
+  - **Tests:** Added 37 focused tests in `tests/test_caption_extractor.py`.
+  - **Full multimodal suite:** 73 passed in 3.35s (37 new + 36 existing Days 8-10 tests).
+- **Changed Files:**
+  - `app/multimodal/models.py` (Modified)
+  - `app/multimodal/caption_extractor.py` (Created)
+  - `app/multimodal/__init__.py` (Modified)
+  - `tests/test_caption_extractor.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_caption_extractor.py -v`: **37 passed in 0.98s**
+  - `.\.venv\Scripts\python -m pytest tests/test_caption_extractor.py tests/test_table_extractor.py tests/test_equation_extractor.py tests/test_multimodal.py -v`: **73 passed in 3.35s**
+- **Decisions Made:**
+  - Used PyMuPDF `page.get_text('dict')` (already used by `EquationExtractor`) — no new dependencies.
+  - Figure captions matched against PDF layout image blocks (type=1) rather than `ExtractedImage` (which carries no bbox), keeping the extractor self-contained when no images are supplied.
+  - Table caption matching requires caller-supplied `ExtractedTable` objects with populated `bbox`, enabling optional linkage without hard-coupling the extractors.
+  - `CaptionMatch.proximity_pts` is the raw vertical gap in PDF points — deterministic, reproducible, and threshold-configurable downstream.
+  - `max_proximity_pts` defaults to 72 pts (1 inch) to handle typical typographic spacing while preventing cross-column misattribution.
+- **Remaining Limitations:**
+  - Multi-line captions spanning across two PDF text blocks are not merged.
+  - Visual encoding, multimodal embeddings, and unified multimodal representation deferred to Days 12-14.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 10 is complete.
-- **Next Planned Task (Day 11):** Multimodal extraction — captions and figure/table association (**Planned, Not Started**).
-  - *Do not start Day 11 implementation until explicitly instructed.*
+- **Status:** Day 11 is complete.
+- **Next Planned Task (Day 12):** Multimodal extraction — visual encoding / multimodal embeddings (**Planned, Not Started**).
+  - *Do not start Day 12 implementation until explicitly instructed.*
   - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation.
-  - **Day 11 Boundaries:**
-    - Do not implement any Day 11 functionality now.
+  - **Day 12 Boundaries:**
+    - Do not implement any Day 12 functionality now.
     - Do not add unnecessary frameworks or features.
     - Do not alter the established roadmap or mark future days complete.
+
 
 
 

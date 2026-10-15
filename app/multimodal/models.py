@@ -362,3 +362,193 @@ class ExtractedTable:
 TableElement = ExtractedTable
 ExtractedTableElement = ExtractedTable
 
+
+# ---------------------------------------------------------------------------
+# Caption types
+# ---------------------------------------------------------------------------
+
+#: Sentinel string for figure/image captions.
+CAPTION_TYPE_FIGURE: str = "figure"
+#: Sentinel string for table captions.
+CAPTION_TYPE_TABLE: str = "table"
+
+
+@dataclass
+class ExtractedCaption:
+    """Represents an extracted figure or table caption from a PDF page.
+
+    Attributes:
+        caption_id: Unique deterministic identifier (e.g. 'paper.pdf#page_2_cap_0').
+        source_filename: Name of the originating PDF document file.
+        page_number: 1-based page number where the caption appeared.
+        caption_index: 0-based index of the caption on the given page.
+        caption_type: Either ``CAPTION_TYPE_FIGURE`` ('figure') or ``CAPTION_TYPE_TABLE`` ('table').
+        text: Full plain-text content of the caption.
+        label: Short label parsed from the caption text (e.g. 'Figure 1', 'Table 2').
+        bbox: Optional spatial bounding box (x0, y0, x1, y1) in PDF points.
+    """
+
+    caption_id: str
+    source_filename: str
+    page_number: int
+    caption_index: int
+    caption_type: str
+    text: str
+    label: Optional[str] = None
+    bbox: Optional[Tuple[float, float, float, float]] = None
+
+    def __init__(
+        self,
+        caption_id: str,
+        source_filename: str,
+        page_number: int,
+        caption_index: int,
+        caption_type: str,
+        text: str,
+        label: Optional[str] = None,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        *,
+        caption_text: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> None:
+        self.caption_id = caption_id
+        self.source_filename = source_filename
+        self.page_number = page_number
+        self.caption_index = caption_index
+        self.caption_type = caption_type.strip().lower()
+
+        actual_text = text if text is not None else (caption_text or content or "")
+        self.text = str(actual_text).strip()
+
+        self.label = label.strip() if label else None
+        self.bbox = bbox
+
+        self._validate()
+
+    def _validate(self) -> None:
+        if not self.caption_id or not str(self.caption_id).strip():
+            raise ValueError("caption_id cannot be empty")
+        if not self.source_filename or not str(self.source_filename).strip():
+            raise ValueError("source_filename cannot be empty")
+        if self.page_number < 1:
+            raise ValueError(
+                f"page_number must be >= 1 (1-based), got {self.page_number}"
+            )
+        if self.caption_index < 0:
+            raise ValueError(f"caption_index must be >= 0, got {self.caption_index}")
+        if self.caption_type not in (CAPTION_TYPE_FIGURE, CAPTION_TYPE_TABLE):
+            raise ValueError(
+                f"caption_type must be 'figure' or 'table', got '{self.caption_type}'"
+            )
+        if not self.text:
+            raise ValueError("caption text cannot be empty")
+
+    @property
+    def is_figure_caption(self) -> bool:
+        """True when this caption belongs to a figure or image."""
+        return self.caption_type == CAPTION_TYPE_FIGURE
+
+    @property
+    def is_table_caption(self) -> bool:
+        """True when this caption belongs to a table."""
+        return self.caption_type == CAPTION_TYPE_TABLE
+
+    @property
+    def caption_text(self) -> str:
+        """Alias for text."""
+        return self.text
+
+    @property
+    def content(self) -> str:
+        """Alias for text."""
+        return self.text
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the caption to a dictionary representation."""
+        return {
+            "caption_id": self.caption_id,
+            "source_filename": self.source_filename,
+            "page_number": self.page_number,
+            "caption_index": self.caption_index,
+            "caption_type": self.caption_type,
+            "text": self.text,
+            "label": self.label,
+            "bbox": self.bbox,
+        }
+
+
+CaptionElement = ExtractedCaption
+ExtractedCaptionElement = ExtractedCaption
+
+
+# ---------------------------------------------------------------------------
+# Lightweight caption-element relationship
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CaptionMatch:
+    """Lightweight, deterministic link between a visual element and its caption.
+
+    Attributes:
+        element_id: The ``image_id`` or ``table_id`` of the matched visual element.
+        caption_id: The ``caption_id`` of the matched caption.
+        caption_type: Either 'figure' or 'table'.
+        proximity_pts: Vertical distance in PDF points between the element and caption.
+        source_filename: Name of the originating PDF document file.
+        page_number: 1-based page number where both elements appear.
+    """
+
+    element_id: str
+    caption_id: str
+    caption_type: str
+    proximity_pts: float
+    source_filename: str
+    page_number: int
+
+    def __init__(
+        self,
+        element_id: str,
+        caption_id: str,
+        caption_type: str,
+        proximity_pts: float,
+        source_filename: str,
+        page_number: int,
+    ) -> None:
+        self.element_id = element_id
+        self.caption_id = caption_id
+        self.caption_type = caption_type.strip().lower()
+        self.proximity_pts = float(proximity_pts)
+        self.source_filename = source_filename
+        self.page_number = page_number
+
+        self._validate()
+
+    def _validate(self) -> None:
+        if not self.element_id or not str(self.element_id).strip():
+            raise ValueError("element_id cannot be empty")
+        if not self.caption_id or not str(self.caption_id).strip():
+            raise ValueError("caption_id cannot be empty")
+        if self.caption_type not in (CAPTION_TYPE_FIGURE, CAPTION_TYPE_TABLE):
+            raise ValueError(
+                f"caption_type must be 'figure' or 'table', got '{self.caption_type}'"
+            )
+        if self.proximity_pts < 0:
+            raise ValueError(f"proximity_pts must be >= 0, got {self.proximity_pts}")
+        if not self.source_filename or not str(self.source_filename).strip():
+            raise ValueError("source_filename cannot be empty")
+        if self.page_number < 1:
+            raise ValueError(
+                f"page_number must be >= 1 (1-based), got {self.page_number}"
+            )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the match to a dictionary representation."""
+        return {
+            "element_id": self.element_id,
+            "caption_id": self.caption_id,
+            "caption_type": self.caption_type,
+            "proximity_pts": self.proximity_pts,
+            "source_filename": self.source_filename,
+            "page_number": self.page_number,
+        }
