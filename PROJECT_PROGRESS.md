@@ -42,7 +42,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 12 Complete
+- **Status:** Day 13 Complete
 - **Date:** October 16, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
@@ -463,19 +463,61 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+### Day 13 — October 16, 2026 (Completed)
+- **Completed Tasks:**
+  - **Task 1: Modality-Specific Multimodal FAISS Indexing (`app/indexing/multimodal_models.py`, `app/indexing/multimodal_faiss_index.py`)**
+    - Created `MultimodalSearchResult` dataclass in `app/indexing/multimodal_models.py`: wraps the original `MultimodalElement` and exposes first-class accessors for `score`, `element_id`, `element_type`, `source_filename`, 1-based `page_number`, `related_element_ids`, `content`, and `metadata` without duplicating stored data.
+    - Implemented `ModalityFAISSIndex`: single-modality `faiss.IndexFlatIP` wrapper with L2-normalization for cosine similarity, fixed-dimensionality enforcement, rejection of dimension mismatches and non-finite vectors (NaN/Inf), bidirectional `int → MultimodalElement` and `element_id → int` mappings, and safe empty-index handling.
+    - Implemented `MultimodalFAISSIndex`: high-level composite index maintaining two strictly separate sub-indices — `text_index` (384-dimensional) for `ElementType.TEXT`, `CAPTION`, `TABLE`, and `EQUATION` elements, and `visual_index` (512-dimensional) for `ElementType.IMAGE` elements. Vectors are never concatenated and no projection layer is introduced.
+    - Added `add_embedding_result(MultimodalEmbeddingResult)` and `add_document(MultimodalDocument)` ingestion methods; classmethod factories `from_embedding_result` and `from_document`; and `build_multimodal_index()` convenience function.
+    - Added modality-dispatched search methods: `search_text_by_vector`, `search_visual_by_vector`, `search_text`, and `search_visual`.
+    - Updated `app/indexing/__init__.py` to re-export `ModalityFAISSIndex`, `MultimodalFAISSIndex`, `MultimodalSearchResult`, and `build_multimodal_index`. The existing `FAISSIndex` and `SearchResult` remain completely unchanged.
+    - Added 18 focused tests in `tests/test_multimodal_indexing.py` across categories: dimensions, dimension safety (cross-modal rejection), modality routing, FAISS ID mapping, retrieval and ranking, provenance, validation (NaN/Inf/top_k), and a full mixed-document integration test.
+  - **Task 2: Modality-Aware Multimodal Retrieval (`app/retrieval/multimodal_pipeline.py`)**
+    - Created `MultimodalRetrievalPipeline` in `app/retrieval/multimodal_pipeline.py`: orchestrates similarity search over `MultimodalFAISSIndex` with strict modality isolation — `retrieve_text` / `search_text` queries only the 384-d text index; `retrieve_visual` / `search_visual` queries only the 512-d visual index.
+    - Added a generic `retrieve(query, modality, top_k)` dispatcher accepting `'text'` or `'visual'` modality strings for convenient programmatic use.
+    - Reused the existing `BaseEmbedder` / `SentenceTransformerEmbedder` infrastructure for text query encoding and `BaseVisualEmbedder` / `SentenceTransformerVisualEmbedder` for image query encoding; no new models introduced.
+    - All returned `MultimodalSearchResult` objects preserve the original `MultimodalElement` along with exact `element_id`, `element_type`, `source_filename`, 1-based `page_number`, similarity `score`, `related_element_ids`, `content`, and `metadata`.
+    - Added `build_multimodal_pipeline()` convenience factory.
+    - Updated `app/retrieval/__init__.py` to re-export `MultimodalRetrievalPipeline` and `build_multimodal_pipeline`. The existing text-only `RetrievalPipeline` is completely unchanged.
+    - Added 13 focused tests in `tests/test_multimodal_retrieval.py` across categories: text retrieval (vector and string query, ranking), visual retrieval (vector and bytes query), modality isolation (text results never contain images; visual results never contain text-like elements), provenance integrity, image↔caption relationship traversal via `MultimodalDocument.get_related()`, and validation (empty query, invalid `top_k`, dimension mismatch, invalid modality dispatch, pipeline init validation).
+- **Changed Files:**
+  - `app/indexing/multimodal_models.py` (Created)
+  - `app/indexing/multimodal_faiss_index.py` (Created)
+  - `app/indexing/__init__.py` (Modified)
+  - `app/retrieval/multimodal_pipeline.py` (Created)
+  - `app/retrieval/__init__.py` (Modified)
+  - `tests/test_multimodal_indexing.py` (Created)
+  - `tests/test_multimodal_retrieval.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_indexing.py -v`: **18 passed in 0.65s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_retrieval.py -v`: **13 passed in 0.60s**
+  - `.\.venv\Scripts\python -m pytest -q`: **219 passed in 16.29s** (all 188 baseline + 18 Day 13 indexing + 13 Day 13 retrieval)
+- **Decisions Made:**
+  - **Strict Vector Space Separation:** Text-like embeddings (384-d) and visual embeddings (512-d) remain in completely separate FAISS indices. No concatenation, no projection layer, no combined index.
+  - **Reuse over Duplication:** `ModalityFAISSIndex` reuses the same L2-normalization and `IndexFlatIP` pattern as the existing `FAISSIndex`. The existing text-only pipeline is untouched.
+  - **Provenance Preserved End-to-End:** FAISS integer IDs map directly to the original `MultimodalElement` instances, preserving all provenance fields and relationship graphs through to `MultimodalSearchResult`.
+  - **Cross-Modal Retrieval Deferred:** A text query does not search the visual index and vice versa; cross-modal alignment (e.g. CLIP shared space) is intentionally left for a later day.
+  - **Backward Compatibility:** Existing `FAISSIndex`, `SearchResult`, and `RetrievalPipeline` are fully intact; all 188 pre-Day-13 tests continue to pass without modification.
+- **Remaining Limitations:**
+  - Cross-modal retrieval (text query → image results via shared CLIP space) is not yet implemented.
+  - Sparse BM25 retrieval and hybrid dense+sparse fusion (RRF) are deferred to Days 15–17.
+  - Cross-encoder reranking is deferred to Days 15–17.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 12 is complete.
-- **Next Planned Task (Day 13):** Multimodal retrieval / indexing / hybrid multimodal search (**Planned, Not Started**).
-  - *Do not start Day 13 implementation until explicitly instructed.*
+- **Status:** Day 13 is complete.
+- **Next Planned Task (Day 14):** Multimodal retrieval integration / final multimodal pipeline integration (**Planned, Not Started**).
+  - *Do not start Day 14 implementation until explicitly instructed.*
   - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation; multimodal vector indexing and retrieval.
-  - **Day 13 Boundaries:**
-    - Do not implement any Day 13 functionality now.
+  - **Day 14 Boundaries:**
+    - Do not implement any Day 14 functionality now.
     - Do not alter the established roadmap or mark future days complete.
-
-
-
-
-
