@@ -16,7 +16,10 @@ import numpy as np
 from app.embeddings.base import BaseEmbedder
 from app.indexing.multimodal_faiss_index import MultimodalFAISSIndex
 from app.indexing.multimodal_models import MultimodalSearchResult
+from app.multimodal.collection import MultimodalDocument
 from app.multimodal.embedding import BaseVisualEmbedder
+from app.retrieval.multimodal_assembler import MultimodalContextAssembler
+from app.retrieval.multimodal_models import MultimodalRetrievedContext
 
 
 class MultimodalRetrievalPipeline:
@@ -33,6 +36,7 @@ class MultimodalRetrievalPipeline:
         text_embedder: Optional[BaseEmbedder] = None,
         visual_embedder: Optional[BaseVisualEmbedder] = None,
         default_top_k: int = 5,
+        assembler: Optional[MultimodalContextAssembler] = None,
     ) -> None:
         if not isinstance(index, MultimodalFAISSIndex):
             raise TypeError(
@@ -48,6 +52,7 @@ class MultimodalRetrievalPipeline:
         self._text_embedder = text_embedder
         self._visual_embedder = visual_embedder
         self.default_top_k = default_top_k
+        self.assembler = assembler or MultimodalContextAssembler()
 
     @property
     def text_embedder(self) -> BaseEmbedder:
@@ -156,6 +161,29 @@ class MultimodalRetrievalPipeline:
             f"Unsupported modality '{modality}'. Supported modalities are: 'text', 'visual'"
         )
 
+    def retrieve_and_assemble(
+        self,
+        query: Union[str, np.ndarray, bytes, Any],
+        modality: str = "text",
+        top_k: Optional[int] = None,
+        document: Optional[MultimodalDocument] = None,
+    ) -> MultimodalRetrievedContext:
+        """Retrieves relevant multimodal elements and formats them into a prompt-ready context.
+
+        Args:
+            query: Query text string, image payload, or pre-computed vector.
+            modality: Target modality stream ('text' or 'visual'). Defaults to 'text'.
+            top_k: Optional limit on returned results (defaults to default_top_k).
+            document: Optional MultimodalDocument used for resolving inter-element relationships
+                (such as image <-> caption links) during context assembly.
+
+        Returns:
+            MultimodalRetrievedContext containing formatted context, structured citations,
+            and original MultimodalSearchResult objects.
+        """
+        search_results = self.retrieve(query=query, modality=modality, top_k=top_k)
+        return self.assembler.assemble(search_results=search_results, document=document)
+
     # Convenience aliases
     search_text = retrieve_text
     search_visual = retrieve_visual
@@ -166,6 +194,7 @@ def build_multimodal_pipeline(
     text_embedder: Optional[BaseEmbedder] = None,
     visual_embedder: Optional[BaseVisualEmbedder] = None,
     default_top_k: int = 5,
+    assembler: Optional[MultimodalContextAssembler] = None,
 ) -> MultimodalRetrievalPipeline:
     """Convenience function to build a MultimodalRetrievalPipeline."""
     return MultimodalRetrievalPipeline(
@@ -173,4 +202,6 @@ def build_multimodal_pipeline(
         text_embedder=text_embedder,
         visual_embedder=visual_embedder,
         default_top_k=default_top_k,
+        assembler=assembler,
     )
+

@@ -42,8 +42,8 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 13 Complete
-- **Date:** October 16, 2026
+- **Status:** Day 14 Complete
+- **Date:** October 17, 2026
 - **Environment:** Windows, Python 3.13.5, active `.venv`
 - **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
 - **Configuration & Dependencies:**
@@ -510,14 +510,73 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - **Blockers:**
   - None.
 
+
+
+### Day 14 — October 17, 2026 (Completed)
+- **Completed Tasks:**
+  - **Step 1: Multimodal Retrieved-Context Modeling and Assembly (`app/retrieval/multimodal_models.py`, `app/retrieval/multimodal_assembler.py`)**
+    - Created `MultimodalCitation` dataclass in `app/retrieval/multimodal_models.py`: captures `citation_label`, `element_id`, `element_type`, `source_filename`, 1-based `page_number`, and `score`; includes `__post_init__` validation (non-empty fields, page ≥ 1).
+    - Created `MultimodalRetrievedContext` dataclass: holds `formatted_context`, `citations`, and `search_results`; provides helper properties — `elements`, `visual_results`, `text_results`, `related_element_ids` — and lookup methods `get_citation_by_label()` and `get_result_by_element_id()`.
+    - Implemented `MultimodalContextAssembler`: converts `List[MultimodalSearchResult]` into `MultimodalRetrievedContext` with sequential `[1]`, `[2]`, ... citation markers, source filename, and 1-based page references.
+    - Modality-specific evidence formatting: `TEXT` → readable text; `CAPTION` → caption content; `TABLE` → table markdown; `EQUATION` → formula/LaTeX string; `IMAGE` → safe text descriptor (format, dimensions) — raw image bytes are never emitted into formatted prompt text.
+    - Relationship resolution: if an image result has `related_element_ids` and a `MultimodalDocument` is provided, the linked caption text is automatically resolved and included in the formatted context. Without a document, related IDs are exposed as a reference line. No relationships are invented.
+    - Added `assemble_multimodal_context()` convenience function.
+    - Updated `app/retrieval/__init__.py` to re-export `MultimodalCitation`, `MultimodalRetrievedContext`, `MultimodalContextAssembler`, and `assemble_multimodal_context`.
+    - Added 12 focused unit tests in `tests/test_multimodal_assembly.py` covering all 5 element type formats, sequential citation labels, source filename and page preservation, relationship/caption exposure (with and without document), empty results, original search result object preservation, helper property behavior, and `MultimodalCitation` validation.
+  - **Step 2: `retrieve_and_assemble()` Integration into `MultimodalRetrievalPipeline` (`app/retrieval/multimodal_pipeline.py`)**
+    - Extended `MultimodalRetrievalPipeline.__init__()` to accept an optional `assembler: MultimodalContextAssembler` parameter (defaults to a fresh `MultimodalContextAssembler()`).
+    - Added `retrieve_and_assemble(query, modality, top_k, document)`: calls the appropriate existing retrieval method (`retrieve_text` or `retrieve_visual`) and passes results to the assembler, returning `MultimodalRetrievedContext`. Supports `modality='text'` and `modality='visual'`.
+    - Updated `build_multimodal_pipeline()` to accept and pass through an optional `assembler` argument.
+    - All existing `retrieve_text`, `retrieve_visual`, and `retrieve` methods remain completely unchanged.
+    - Added 7 focused integration tests in `tests/test_multimodal_retrieval.py` (Category G: `TestRetrieveAndAssemble`) covering: text query assembly, visual query assembly, image→caption resolution when a document is supplied, `top_k` propagation, invalid modality handling, empty retrieval results, and backward compatibility of existing retrieval methods.
+  - **Step 3: End-to-End Multimodal Integration Tests (`tests/test_multimodal_integration.py`)**
+    - Created a complete deterministic integration test suite proving the following flow works without any real model weights or external API calls:
+      `MultimodalDocument` → `MultimodalEmbedder` (384-d text / 512-d visual) → `MultimodalFAISSIndex` → `MultimodalRetrievalPipeline.retrieve_and_assemble()` → `MultimodalRetrievedContext` (formatted grounded context + citations + original results).
+    - Test fixture assembles a realistic 5-element scientific paper: `TEXT` (abstract), `IMAGE` (architecture diagram with width/height metadata), `CAPTION` (linked to image via `CaptionMatch`), `TABLE` (BLEU results markdown), and `EQUATION` (scaled dot-product attention formula).
+    - Uses lightweight `DeterministicTextEmbedder` (384-d) and `DeterministicVisualEmbedder` (512-d) mapping semantic concepts to orthogonal unit-vector dimensions — no model download required.
+    - Added 5 end-to-end tests: (1) embedding and modality partitioning (4 elements to text_index, 1 to visual_index); (2) text query → `TEXT` element hit with full citation provenance; (3) `TABLE` and `EQUATION` queries each retrieve their respective elements with correct page numbers and formatted content; (4) visual query → `IMAGE` hit with score ≈ 1.0, linked caption resolved from `MultimodalDocument`, raw bytes confirmed absent from formatted context; (5) strict modality isolation across the complete pipeline (text retrieval never returns images; visual retrieval never returns text-like elements).
+- **Architecture Preserved:**
+  - The 384-d text and 512-d visual FAISS vector spaces remain strictly separate throughout — no vector concatenation, no projection layer, no combined index.
+  - Image→caption resolution uses existing `MultimodalDocument.get_by_id()` traversal; no new cross-modal embedding infrastructure was introduced.
+  - Backward compatibility: all 219 pre-Day-14 tests continue to pass without modification.
+- **Changed Files:**
+  - `app/retrieval/multimodal_models.py` (Created)
+  - `app/retrieval/multimodal_assembler.py` (Created)
+  - `app/retrieval/multimodal_pipeline.py` (Modified — added `retrieve_and_assemble()` and `assembler` parameter)
+  - `app/retrieval/__init__.py` (Modified — added re-exports for Day 14 symbols)
+  - `tests/test_multimodal_assembly.py` (Created)
+  - `tests/test_multimodal_retrieval.py` (Modified — added Category G tests)
+  - `tests/test_multimodal_integration.py` (Created)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_assembly.py -v`: **12 passed in 3.43s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_retrieval.py -v`: **20 passed in 0.77s** (13 baseline + 7 new Day 14)
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_assembly.py tests/test_multimodal_retrieval.py -v`: **32 passed in 0.58s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_integration.py -v`: **5 passed in 0.68s**
+  - `.\.venv\Scripts\python -m pytest -q`: **243 passed in 15.68s** (all 219 baseline + 12 assembly + 7 pipeline integration + 5 end-to-end integration), **0 failures**
+- **Decisions Made:**
+  - **No Architecture Changes:** Strict modality isolation (384-d text / 512-d visual) is preserved throughout. No concatenation, projection, hybrid fusion, or cross-modal alignment was introduced.
+  - **Image Safety:** Raw image bytes are never emitted into the formatted context string; images are represented as structured text descriptors.
+  - **Relationship Resolution via Document:** Caption resolution for image hits uses the passed-in `MultimodalDocument` reference, not a new dedicated resolver. No relationships are invented — only those already encoded in `related_element_ids` are used.
+  - **Assembler as Optional Parameter:** The assembler is injected into `MultimodalRetrievalPipeline` as an optional dependency, keeping it swappable and testable in isolation.
+  - **Backward Compatibility:** `retrieve_text`, `retrieve_visual`, and `retrieve` remain untouched. `build_multimodal_pipeline` gains only an optional `assembler` kwarg; existing call sites require no changes.
+- **Remaining Limitations:**
+  - Cross-modal retrieval (text query → image results via shared CLIP space) is not yet implemented.
+  - Sparse BM25 retrieval and hybrid dense+sparse fusion (RRF) are deferred to Days 15–17.
+  - Cross-encoder reranking is deferred to Days 15–17.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
 ---
 
 ## Handoff
 
-- **Status:** Day 13 is complete.
-- **Next Planned Task (Day 14):** Multimodal retrieval integration / final multimodal pipeline integration (**Planned, Not Started**).
-  - *Do not start Day 14 implementation until explicitly instructed.*
-  - **Roadmap Context (Days 8–14):** Extracting images, figures, and tables; visual encoding/multimodal embeddings; table parsing; multimodal document representation; multimodal vector indexing and retrieval.
-  - **Day 14 Boundaries:**
-    - Do not implement any Day 14 functionality now.
+- **Status:** Day 14 is complete.
+- **Next Planned Task (Day 15):** Next multimodal retrieval enhancement from the roadmap (**Planned, Not Started**).
+  - *Do not start Day 15 implementation until explicitly instructed with "start day15".*
+  - **Roadmap Context (Days 15+):** Sparse BM25 retrieval, hybrid dense+sparse fusion (RRF), cross-encoder reranking, vector index persistence, cross-modal retrieval, LLM generation integration, and UI.
+  - **Day 15 Boundaries:**
+    - Do not implement any Day 15 functionality now.
     - Do not alter the established roadmap or mark future days complete.

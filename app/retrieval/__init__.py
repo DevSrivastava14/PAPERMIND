@@ -4,6 +4,14 @@ from app.retrieval.assembler import (
     format_page_reference,
 )
 from app.retrieval.models import Citation, RetrievedContext
+from app.retrieval.multimodal_assembler import (
+    MultimodalContextAssembler,
+    assemble_multimodal_context,
+)
+from app.retrieval.multimodal_models import (
+    MultimodalCitation,
+    MultimodalRetrievedContext,
+)
 from app.retrieval.multimodal_pipeline import (
     MultimodalRetrievalPipeline,
     build_multimodal_pipeline,
@@ -18,7 +26,12 @@ __all__ = [
     "format_page_reference",
     "RetrievalPipeline",
     "build_pipeline",
+    "MultimodalCitation",
+    "MultimodalRetrievedContext",
+    "MultimodalContextAssembler",
+    "assemble_multimodal_context",
     "MultimodalRetrievalPipeline",
     "build_multimodal_pipeline",
 ]
+
 

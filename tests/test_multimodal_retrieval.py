@@ -29,7 +29,10 @@ from app.multimodal.embedding import (
     MultimodalEmbeddingResult,
 )
 from app.retrieval import (
+    MultimodalCitation,
+    MultimodalContextAssembler,
     MultimodalRetrievalPipeline,
+    MultimodalRetrievedContext,
     build_multimodal_pipeline,
 )
 
@@ -527,3 +530,213 @@ class TestValidationAndErrorHandling:
 
         with pytest.raises(ValueError, match="default_top_k must be a positive integer"):
             MultimodalRetrievalPipeline(index=MultimodalFAISSIndex(), default_top_k=0)
+
+
+# ===========================================================================
+# Category G: Retrieve and Assemble Integration (Day 14 Step 2)
+# ===========================================================================
+
+
+class TestRetrieveAndAssemble:
+    """Verifies end-to-end integration of context assembly in MultimodalRetrievalPipeline."""
+
+    def test_text_retrieve_and_assemble(
+        self,
+        sample_multimodal_index: MultimodalFAISSIndex,
+        mock_text_embedder: MockTextEmbedder,
+    ) -> None:
+        """Requirement 1, 3, 4: Text query -> retrieval -> assembled context with citations."""
+        pipeline = MultimodalRetrievalPipeline(
+            index=sample_multimodal_index,
+            text_embedder=mock_text_embedder,
+            default_top_k=2,
+        )
+
+        query = np.zeros(384, dtype=np.float32)
+        query[0] = 1.0
+
+        context = pipeline.retrieve_and_assemble(query=query, modality="text", top_k=2)
+
+        assert isinstance(context, MultimodalRetrievedContext)
+        assert len(context) == 2
+        assert len(context.citations) == 2
+        assert len(context.search_results) == 2
+
+        # Check citations
+        cit1 = context.citations[0]
+        assert cit1.citation_label == "[1]"
+        assert cit1.element_id == "txt_01"
+        assert cit1.element_type == ElementType.TEXT
+        assert cit1.source_filename == "research_paper.pdf"
+        assert cit1.page_number == 1
+
+        cit2 = context.citations[1]
+        assert cit2.citation_label == "[2]"
+        assert cit2.element_id == "cap_01"
+        assert cit2.element_type == ElementType.CAPTION
+
+        # Check formatted context
+        assert "[1] [Text] Source: research_paper.pdf (Page 1)" in context.formatted_context
+        assert "Transformer architecture uses multi-head attention." in context.formatted_context
+        assert "[2] [Caption] Source: research_paper.pdf (Page 2)" in context.formatted_context
+
+    def test_visual_retrieve_and_assemble(
+        self,
+        sample_multimodal_index: MultimodalFAISSIndex,
+        mock_visual_embedder: MockVisualEmbedder,
+    ) -> None:
+        """Requirement 2: Visual query -> retrieval -> assembled context."""
+        pipeline = MultimodalRetrievalPipeline(
+            index=sample_multimodal_index,
+            visual_embedder=mock_visual_embedder,
+        )
+
+        context = pipeline.retrieve_and_assemble(
+            b"query_image_bytes", modality="visual", top_k=1
+        )
+
+        assert isinstance(context, MultimodalRetrievedContext)
+        assert len(context) == 1
+        assert len(context.visual_results) == 1
+        assert context.visual_results[0].element_type == ElementType.IMAGE
+
+        # Citations
+        assert context.citations[0].citation_label == "[1]"
+        assert context.citations[0].element_type == ElementType.IMAGE
+        assert context.citations[0].page_number in (2, 4)
+
+        # Formatted evidence descriptor
+        assert "[1] [Image] Source: research_paper.pdf" in context.formatted_context
+        assert "[Image: img_" in context.formatted_context
+
+    def test_retrieve_and_assemble_with_document_caption_resolution(
+        self,
+        mock_text_embedder: MockTextEmbedder,
+        mock_visual_embedder: MockVisualEmbedder,
+    ) -> None:
+        """Requirement 5: Image -> related caption resolution when MultimodalDocument is supplied."""
+        img = ExtractedImage(
+            image_id="img_net",
+            source_filename="paper.pdf",
+            page_number=3,
+            image_index=0,
+            image_format="png",
+            image_data=b"\x89PNGfigure",
+        )
+        cap = ExtractedCaption(
+            caption_id="cap_net",
+            source_filename="paper.pdf",
+            page_number=3,
+            caption_index=0,
+            caption_type="figure",
+            label="Figure 2",
+            text="Figure 2: Attention layers connection diagram.",
+        )
+        match = CaptionMatch(
+            element_id="img_net",
+            caption_id="cap_net",
+            caption_type="figure",
+            proximity_pts=15.0,
+            source_filename="paper.pdf",
+            page_number=3,
+        )
+
+        doc = assemble_multimodal_document(
+            images=[img],
+            captions=[cap],
+            caption_matches=[match],
+            source_filename="paper.pdf",
+        )
+
+        embedder = MultimodalEmbedder(
+            text_embedder=mock_text_embedder,
+            visual_embedder=mock_visual_embedder,
+        )
+        index = build_multimodal_index(doc, embedder=embedder)
+        pipeline = build_multimodal_pipeline(
+            index=index,
+            text_embedder=mock_text_embedder,
+            visual_embedder=mock_visual_embedder,
+        )
+
+        context = pipeline.retrieve_and_assemble(
+            b"\x89PNGfigure",
+            modality="visual",
+            top_k=1,
+            document=doc,
+        )
+
+        assert len(context) == 1
+        assert context.related_element_ids == ["cap_net"]
+        assert "Caption: Figure 2: Attention layers connection diagram." in context.formatted_context
+
+    def test_retrieve_and_assemble_top_k_propagation(
+        self,
+        sample_multimodal_index: MultimodalFAISSIndex,
+        mock_text_embedder: MockTextEmbedder,
+    ) -> None:
+        """Requirement 6: top_k propagation limits assembled context items."""
+        pipeline = MultimodalRetrievalPipeline(
+            index=sample_multimodal_index,
+            text_embedder=mock_text_embedder,
+            default_top_k=5,
+        )
+
+        c1 = pipeline.retrieve_and_assemble("attention", modality="text", top_k=1)
+        assert len(c1) == 1
+
+        c2 = pipeline.retrieve_and_assemble("attention", modality="text", top_k=3)
+        assert len(c2) == 3
+
+    def test_retrieve_and_assemble_invalid_modality(
+        self,
+        sample_multimodal_index: MultimodalFAISSIndex,
+    ) -> None:
+        """Requirement 7: Invalid modality raises ValueError."""
+        pipeline = MultimodalRetrievalPipeline(index=sample_multimodal_index)
+        with pytest.raises(ValueError, match="Unsupported modality 'tabular'"):
+            pipeline.retrieve_and_assemble("query", modality="tabular")
+
+    def test_retrieve_and_assemble_empty_results(
+        self,
+        sample_multimodal_index: MultimodalFAISSIndex,
+        mock_text_embedder: MockTextEmbedder,
+    ) -> None:
+        """Requirement 8: Empty queries or empty indices produce clean empty context."""
+        pipeline = MultimodalRetrievalPipeline(
+            index=sample_multimodal_index,
+            text_embedder=mock_text_embedder,
+        )
+        context = pipeline.retrieve_and_assemble("", modality="text")
+        assert len(context) == 0
+        assert context.formatted_context == ""
+        assert context.citations == []
+        assert context.search_results == []
+
+        empty_pipeline = MultimodalRetrievalPipeline(index=MultimodalFAISSIndex())
+        empty_context = empty_pipeline.retrieve_and_assemble(
+            np.zeros(384, dtype=np.float32), modality="text"
+        )
+        assert len(empty_context) == 0
+        assert empty_context.formatted_context == ""
+
+    def test_existing_retrieval_remains_unchanged(
+        self,
+        sample_multimodal_index: MultimodalFAISSIndex,
+    ) -> None:
+        """Requirement 9: retrieve_text, retrieve_visual, and retrieve remain intact."""
+        pipeline = MultimodalRetrievalPipeline(index=sample_multimodal_index)
+
+        query = np.zeros(384, dtype=np.float32)
+        query[0] = 1.0
+
+        hits = pipeline.retrieve_text(query, top_k=2)
+        assert isinstance(hits, list)
+        assert len(hits) == 2
+        assert isinstance(hits[0], MultimodalSearchResult)
+
+        generic_hits = pipeline.retrieve(query, modality="text", top_k=2)
+        assert isinstance(generic_hits, list)
+        assert len(generic_hits) == 2
+        assert generic_hits[0].element_id == hits[0].element_id
+
