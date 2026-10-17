@@ -571,12 +571,209 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ---
 
+## Day 15: Hybrid Retrieval — Task 1: Sparse BM25 Retrieval Foundation
+
+- **Status:** Complete
+- **Goal:** Implement the sparse BM25 retrieval foundation operating over text-like multimodal elements (TEXT, CAPTION, TABLE, EQUATION) with strict IMAGE exclusion, deterministic lightweight tokenization, provenance preservation, and standard BM25 scoring.
+- **Components Built:**
+  - **Deterministic Tokenization (`app/indexing/bm25_index.py`):**
+    - `tokenize(text: str) -> List[str]`: Lightweight regex-based tokenizer normalizing case and extracting alphanumeric tokens while preserving hyphenated and underscore-linked terms (`d_k`, `w_q`, `bleu-4`, `transformer-base`).
+    - Strips markdown table syntax, LaTeX math decorators, and punctuation without requiring heavyweight external NLP dependencies.
+  - **In-Memory BM25 Index (`app/indexing/bm25_index.py`):**
+    - `BM25Index`: Okapi BM25 index with configurable $k_1$ (default 1.5, non-negative) and $b$ (default 0.75, $0.0 \le b \le 1.0$).
+    - Operates strictly on text-like element types: `ElementType.TEXT`, `ElementType.CAPTION`, `ElementType.TABLE`, `ElementType.EQUATION`.
+    - IMAGE elements (`ElementType.IMAGE`) are strictly excluded and never enter the BM25 corpus.
+    - Preserves full original `MultimodalElement` objects with `element_id`, `element_type`, `source_filename`, 1-based `page_number`, `metadata`, `related_element_ids`, and `content`.
+    - Returns standard `MultimodalSearchResult` objects with positive float BM25 scores, maintaining seamless downstream compatibility with the multimodal assembler and pipeline.
+    - Supports `add_elements()`, `add_document()`, `search()`, `clear()`, `from_elements()`, `from_document()`, and `build_bm25_index()`.
+    - Handles empty index, empty/whitespace queries, non-positive `top_k`, non-matching queries, and returns fewer results when matches < `top_k`.
+  - **Re-exports (`app/indexing/__init__.py`):**
+    - Exposed `BM25Index`, `build_bm25_index`, and `tokenize` alongside existing FAISS and Multimodal indexing symbols without altering dense retrieval behavior.
+  - **Comprehensive Unit Tests (`tests/test_bm25_index.py`):**
+    - 38 focused unit tests across 8 categories:
+      1. Deterministic tokenization (case normalization, punctuation, scientific subscripts, hyphens, LaTeX equations, markdown tables, empty/invalid inputs).
+      2. Modality filtering & strict IMAGE exclusion (all text-like modalities indexed, images strictly rejected).
+      3. Parameter validation ($k_1 < 0$, $b < 0$ or $b > 1$, non-numeric types, non-positive `top_k`, invalid element types, duplicate element ID rejection).
+      4. Empty and edge cases (empty index, empty/whitespace queries, invalid query type, no matches, fewer results than `top_k`, index clearing).
+      5. BM25 ranking (TF sensitivity, length normalization via $b$, multi-term query ranking, equation retrieval on `d_k`, table retrieval on `bleu-4`).
+      6. Provenance preservation (`MultimodalSearchResult` fields, original element reference, metadata, relationships, positive scores).
+      7. `MultimodalDocument` integration & factory constructors (`from_document`, `from_elements`, `build_bm25_index`).
+      8. Non-regression verification confirming `FAISSIndex` and `MultimodalFAISSIndex` components remain completely untouched.
+- **Changed Files:**
+  - `app/indexing/bm25_index.py` (Created)
+  - `app/indexing/__init__.py` (Modified — added BM25 symbols)
+  - `tests/test_bm25_index.py` (Created — 38 tests)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_bm25_index.py -v`: **38 passed in 1.67s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_indexing.py -v`: **18 passed in 0.80s** (confirmed 0 regression to dense indexing)
+- **Decisions Made:**
+  - **Result Format Compatibility:** Reused `MultimodalSearchResult` from `app/indexing/multimodal_models.py` rather than creating a parallel result model, ensuring zero impedance mismatch with `MultimodalContextAssembler` and future hybrid fusion layers.
+  - **Robertson-Spärck Jones / Lucene IDF:** Used $\ln(1.0 + (N - n_q + 0.5) / (n_q + 0.5))$ to ensure IDF is non-negative and prevent negative scores when term frequency in corpus exceeds 50%.
+  - **Strict Modality Isolation:** IMAGE elements are filtered out prior to index insertion and never enter the BM25 inverted index.
+  - **Lightweight Tokenizer:** Implemented with standard library `re` without introducing external dependencies (such as NLTK or spaCy), preserving scientific tokens like `d_k` and `bleu-4`.
+- **Remaining Limitations:**
+  - Hybrid dense+sparse fusion (RRF) is deferred to subsequent Day 15 tasks.
+  - Cross-encoder reranking is deferred to Day 16.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
+## Day 15: Hybrid Retrieval — Task 2: BM25 Sparse Retriever Integration
+
+- **Status:** Complete
+- **Goal:** Integrate the completed BM25 sparse retriever into `MultimodalRetrievalPipeline` via an optional dependency, exposing a dedicated `retrieve_sparse()` method while preserving existing dense retrieval behavior.
+- **Components Built:**
+  - **`MultimodalRetrievalPipeline` Sparse Integration (`app/retrieval/multimodal_pipeline.py`):**
+    - Extended `__init__()` to accept an optional `bm25_index: Optional[BM25Index] = None` dependency with runtime type validation (`isinstance(bm25_index, BM25Index)`).
+    - Added `has_bm25` property indicating whether sparse retrieval is available.
+    - Implemented `retrieve_sparse(query: str, top_k: Optional[int] = None) -> List[MultimodalSearchResult]`:
+      - Dispatches sparse queries to `self.bm25_index.search(query, top_k=effective_k)`.
+      - Enforces strict parameter validation: raises `RuntimeError` if BM25 is not configured, `ValueError` if `top_k <= 0`, `TypeError` if `query` is not a string.
+      - Returns `[]` for empty or whitespace query strings.
+      - Returns standard `List[MultimodalSearchResult]` with positive BM25 float scores.
+    - Added `search_sparse = retrieve_sparse` convenience alias matching `search_text` and `search_visual`.
+    - Extended `retrieve(query, modality="sparse"|"bm25")` to route queries to `retrieve_sparse`.
+    - Updated `build_multimodal_pipeline()` factory with optional `bm25_index` pass-through.
+    - Preserved exact dense retrieval behavior: `retrieve_text()`, `retrieve_visual()`, `retrieve()`, and `retrieve_and_assemble()` remain 100% backward-compatible.
+  - **Comprehensive Integration Tests (`tests/test_multimodal_sparse_retrieval.py`):**
+    - 21 focused unit tests across 6 categories:
+      1. Sparse retrieval delegation (`retrieve_sparse`, `search_sparse` alias, `retrieve(modality='sparse')`, `retrieve(modality='bm25')`).
+      2. Modality coverage (successful retrieval of `TEXT`, `CAPTION`, `TABLE`, and `EQUATION`).
+      3. Strict `IMAGE` exclusion (confirmed images never returned by sparse retrieval).
+      4. Parameter propagation and provenance preservation (`top_k`, default fallback, all metadata and provenance fields preserved).
+      5. Empty & edge cases (empty string, whitespace, non-matching terms, empty BM25 index).
+      6. Unconfigured BM25 & validations (`RuntimeError` on unconfigured pipeline, `ValueError` on non-positive `top_k`, `TypeError` on non-string queries or non-BM25 index instances).
+      7. Backward compatibility (dense text retrieval, dense visual retrieval, and prompt-grounded context assembly remain untouched).
+- **Changed Files:**
+  - `app/retrieval/multimodal_pipeline.py` (Modified)
+  - `tests/test_multimodal_sparse_retrieval.py` (Created — 21 tests)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_sparse_retrieval.py -v`: **21 passed in 0.65s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_retrieval.py tests/test_bm25_index.py tests/test_multimodal_integration.py -v`: **63 passed in 0.75s**
+- **Decisions Made:**
+  - **Fail Fast for Unconfigured BM25:** Calling `retrieve_sparse()` on a pipeline without a configured `BM25Index` raises `RuntimeError` rather than silently returning `[]`, allowing callers and future hybrid fusion layers to distinguish between missing configuration vs zero matching hits.
+  - **Modality Dispatch Integration:** Added `'sparse'` and `'bm25'` to `retrieve()` so generic callers can dispatch across dense text, dense visual, and sparse text through a single method.
+  - **Full Backward Compatibility:** Kept all existing constructor signatures and default arguments backwards-compatible; pipelines without a BM25 index work identically to pre-Day-15 behavior.
+- **Remaining Limitations:**
+  - Hybrid dense+sparse fusion (RRF) is deferred to Task 3.
+  - Cross-encoder reranking is deferred to Day 16.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
+## Day 15: Hybrid Retrieval — Task 3: Reciprocal Rank Fusion (RRF) Standalone Component
+
+- **Status:** Complete
+- **Goal:** Implement standard Reciprocal Rank Fusion (RRF) as a standalone, independent retrieval-fusion component capable of combining multiple ranked result lists (e.g. dense FAISS and sparse BM25) with provenance preservation, deduplication, and deterministic tie-breaking.
+- **Components Built:**
+  - **Standalone RRF Component (`app/retrieval/rrf.py`):**
+    - Implemented `ReciprocalRankFusion` class and `reciprocal_rank_fusion()` convenience function.
+    - Standard formula: $\text{RRF\_score}(d) = \sum_{r \in R} \frac{1}{k + \text{rank}(d, r)}$ with 1-based ranks.
+    - Default smoothing constant $k = 60$ (`DEFAULT_RRF_K`), configurable and validated ($k > 0$).
+    - Deduplicates items across multiple ranked lists by unique `element_id`.
+    - Handles intra-list duplicates by preserving the best (first) rank encountered.
+    - Combines reciprocal rank contributions for overlapping elements; preserves single-list contributions for dense-only or sparse-only elements.
+    - Replaces original vector similarity / BM25 scores with pure combined RRF scores.
+    - Preserves complete `MultimodalSearchResult` provenance (`element`, `element_id`, `element_type`, `source_filename`, `page_number`, `metadata`, `related_element_ids`, `content`).
+    - Sorts descending by RRF score, breaking ties deterministically by `element_id`.
+    - Supports optional `top_k` parameter with positive integer validation.
+    - Gracefully handles empty result lists and empty sublists.
+  - **Re-exports (`app/retrieval/__init__.py`):**
+    - Re-exported `DEFAULT_RRF_K`, `ReciprocalRankFusion`, and `reciprocal_rank_fusion`.
+  - **Comprehensive Unit Tests (`tests/test_rrf.py`):**
+    - 23 focused unit tests across 6 categories:
+      1. Formula & rank contribution ($1 / (k + rank)$, default $k=60$, custom $k=10$, overlapping results combination).
+      2. Deduplication and single-list survival (inter-list deduplication, intra-list best-rank deduplication, dense-only survival, sparse-only survival).
+      3. Provenance and score replacement (original FAISS/BM25 scores replaced with pure RRF scores, full `MultimodalSearchResult` fields intact).
+      4. Deterministic ordering and tie-breaking (descending order, alphabetical `element_id` tie-breaking).
+      5. Empty inputs and edge cases (empty lists, all-empty sublists, mixed empty/populated lists, `top_k` limiting, fewer results than `top_k`).
+      6. Parameter validation (invalid $k \le 0$, non-numeric $k$, invalid `top_k`, non-sequence/malformed lists, non-`MultimodalSearchResult` items).
+- **Changed Files:**
+  - `app/retrieval/rrf.py` (Created — 144 lines)
+  - `app/retrieval/__init__.py` (Modified — added RRF re-exports)
+  - `tests/test_rrf.py` (Created — 23 tests)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_rrf.py -v`: **23 passed in 0.89s**
+  - `.\.venv\Scripts\python -m pytest tests/test_rrf.py tests/test_multimodal_sparse_retrieval.py tests/test_multimodal_retrieval.py -v`: **64 passed in 0.64s**
+- **Decisions Made:**
+  - **Isolated from Execution:** Kept RRF purely functional and independent of FAISS or BM25 index instances so it operates deterministically on arbitrary ranked lists of `MultimodalSearchResult`.
+  - **Score Replacement:** Original similarity/BM25 scores are replaced with pure RRF scores rather than blending heterogeneous score scales, preventing unnormalized score biases.
+  - **Intra-list Best Rank:** If an element appears multiple times within a single list, only its best rank is counted to prevent duplicate self-boosting.
+- **Remaining Limitations:**
+  - Full hybrid retrieval pipeline integrating dense FAISS + sparse BM25 + RRF is the next planned step.
+  - Cross-encoder reranking is deferred to Day 16.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
+## Day 15: Hybrid Retrieval — Task 4: Hybrid Dense + Sparse + RRF Integration
+
+- **Status:** Complete
+- **Goal:** Integrate dense FAISS (384-d), sparse BM25, and Reciprocal Rank Fusion (RRF) into `MultimodalRetrievalPipeline`, providing a dedicated `hybrid_retrieve_text()` method and `hybrid_retrieve_and_assemble()` prompt context assembler while strictly maintaining modality isolation and 100% backward compatibility.
+- **Components Built:**
+  - **Hybrid Retrieval Integration (`app/retrieval/multimodal_pipeline.py`):**
+    - Implemented `hybrid_retrieve_text(query, dense_top_k, sparse_top_k, top_k, rrf_k)`:
+      - Validates query string, positive top_k thresholds, and positive RRF $k$.
+      - Raises clear `RuntimeError("BM25 index is not configured...")` if called without a configured `BM25Index`.
+      - Dispatches dense retrieval to `self.retrieve_text(query, top_k=effective_dense_k)`.
+      - Dispatches sparse retrieval to `self.retrieve_sparse(query, top_k=effective_sparse_k)`.
+      - Fuses ranked lists using `reciprocal_rank_fusion([dense_results, sparse_results], k=rrf_k, top_k=effective_top_k)`.
+      - Returns `List[MultimodalSearchResult]` ordered by descending combined RRF score with deterministic tie-breaking.
+      - Enforces strict modality isolation: operates only on text-like elements (`TEXT`, `CAPTION`, `TABLE`, `EQUATION`); `IMAGE` elements are strictly excluded.
+      - Preserves full provenance (`element_id`, `page_number`, `metadata`, `related_element_ids`, `content`, `source_filename`).
+    - Implemented `hybrid_retrieve_and_assemble()` leveraging existing `MultimodalContextAssembler` for structured citation generation (`[1]`, `[2]`, ...).
+    - Added convenience aliases: `search_hybrid_text = hybrid_retrieve_text`, `retrieve_hybrid_text = hybrid_retrieve_text`.
+    - Extended `retrieve(query, modality="hybrid"|"hybrid_text"|"dense_sparse")` to route queries to `hybrid_retrieve_text`.
+    - Preserved exact dense retrieval behavior: `retrieve_text()`, `retrieve_sparse()`, `retrieve_visual()`, `retrieve()`, and `retrieve_and_assemble()` remain 100% backward-compatible.
+  - **Comprehensive Integration Tests (`tests/test_multimodal_hybrid_retrieval.py`):**
+    - 19 focused integration tests covering:
+      - Overlapping elements receive combined RRF scores ($1/(60+1) + 1/(60+2)$).
+      - Dense-only results survive.
+      - Sparse-only results survive.
+      - Final `top_k` strictly respected.
+      - Strict modality isolation: `IMAGE` elements never appear in hybrid text results.
+      - Full provenance preservation across FAISS → BM25 → RRF → output.
+      - Empty and edge cases (both empty, dense populated + sparse empty, empty string query).
+      - Clear `RuntimeError` when BM25 is missing.
+      - Input validation (`top_k <= 0`, `dense_top_k <= 0`, `sparse_top_k <= 0`, non-string query, invalid `rrf_k`).
+      - Full backward compatibility for dense text, sparse, visual, and prompt-ready context assembly.
+- **Changed Files:**
+  - `app/retrieval/multimodal_pipeline.py` (Modified)
+  - `tests/test_multimodal_hybrid_retrieval.py` (Created — 19 tests)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_hybrid_retrieval.py -v`: **19 passed in 0.81s**
+  - `.\.venv\Scripts\python -m pytest tests/test_multimodal_hybrid_retrieval.py tests/test_rrf.py tests/test_multimodal_sparse_retrieval.py tests/test_multimodal_retrieval.py -v`: **83 passed in 0.72s**
+- **Decisions Made:**
+  - **Target Flow Exact Alignment:** Dense text candidates (384-d FAISS) and sparse text candidates (BM25) are retrieved in parallel and combined via standard RRF with $k=60$. Original vector similarity and BM25 scores are replaced with pure RRF scores to avoid disparate score scale distortions.
+  - **Modality Isolation Preserved:** Dense text and sparse BM25 indices independently exclude visual elements; hybrid retrieval is strictly text-like (`TEXT`, `CAPTION`, `TABLE`, `EQUATION`).
+  - **Assembler Reuse:** Reused `MultimodalContextAssembler` without duplicating formatting or citation generation logic.
+- **Remaining Limitations:**
+  - Cross-encoder reranking is deferred to Day 16.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
 ## Handoff
 
-- **Status:** Day 14 is complete.
-- **Next Planned Task (Day 15):** Next multimodal retrieval enhancement from the roadmap (**Planned, Not Started**).
-  - *Do not start Day 15 implementation until explicitly instructed with "start day15".*
-  - **Roadmap Context (Days 15+):** Sparse BM25 retrieval, hybrid dense+sparse fusion (RRF), cross-encoder reranking, vector index persistence, cross-modal retrieval, LLM generation integration, and UI.
-  - **Day 15 Boundaries:**
-    - Do not implement any Day 15 functionality now.
-    - Do not alter the established roadmap or mark future days complete.
+- **Status:** Day 15 is complete (Tasks 1, 2, 3, and 4 all complete and verified).
+- **Next Planned Day (Day 16):** Cross-encoder reranking over retrieved multimodal context.
+
+
+
+

@@ -17,6 +17,11 @@ from app.retrieval.multimodal_pipeline import (
     build_multimodal_pipeline,
 )
 from app.retrieval.pipeline import RetrievalPipeline, build_pipeline
+from app.retrieval.rrf import (
+    DEFAULT_RRF_K,
+    ReciprocalRankFusion,
+    reciprocal_rank_fusion,
+)
 
 __all__ = [
     "Citation",
@@ -32,6 +37,10 @@ __all__ = [
     "assemble_multimodal_context",
     "MultimodalRetrievalPipeline",
     "build_multimodal_pipeline",
+    "DEFAULT_RRF_K",
+    "ReciprocalRankFusion",
+    "reciprocal_rank_fusion",
 ]
+
 
 
