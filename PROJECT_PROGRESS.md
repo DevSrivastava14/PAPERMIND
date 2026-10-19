@@ -769,11 +769,129 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ---
 
+## Day 16: Cross-Encoder Reranking — Task 1: Reranking Foundation
+
+- **Status:** Complete
+- **Goal:** Build an abstract `BaseReranker` interface and a concrete `CrossEncoderReranker` implementation that accepts a query and a list of `MultimodalSearchResult` candidates and returns them reordered by cross-encoder relevance score, without modifying any existing retrieval, BM25, RRF, or FAISS behavior.
+- **Components Built:**
+  - **Abstract Base Interface (`app/reranking/base.py`):**
+    - `BaseReranker` ABC exposing `rerank(query, candidates, top_k) -> List[MultimodalSearchResult]`.
+    - Enforces strict parameter validation in the abstract contract (non-empty string query, non-negative `top_k`).
+  - **`CrossEncoderReranker` (`app/reranking/cross_encoder.py`):**
+    - Default model: `cross-encoder/ms-marco-MiniLM-L-6-v2`.
+    - Accepts an injectable `model` argument so unit tests run fully offline without downloading weights.
+    - `default_candidate_text_extractor()` safely derives text from all element types including `IMAGE` metadata fallbacks.
+    - Normalizes both 1D and 2D logit outputs from the cross-encoder; handles empty candidates and model score-count mismatches (`ScoreCountMismatchError`).
+    - Deterministic tie-breaking on `(-score, element_id)`; preserves all original `MultimodalSearchResult` fields.
+    - Configurable `batch_size`, `device`, and `max_length`.
+  - **Re-exports (`app/reranking/__init__.py`):**
+    - Exposed `BaseReranker`, `CrossEncoderReranker`, `ScoreCountMismatchError`, and `default_candidate_text_extractor`.
+  - **Convenience shim (`app/retrieval/reranker.py`):**
+    - Re-exports `BaseReranker` and `CrossEncoderReranker` for callers who import from the `retrieval` package.
+  - **Comprehensive Unit Tests (`tests/test_reranker.py`):**
+    - 40 focused unit tests covering: abstract interface enforcement, score-based reordering, top-k slicing, empty candidate handling, invalid query/top_k validation, score-count mismatch error, 1D/2D logit normalization, deterministic tie-breaking, and full provenance field preservation.
+- **Changed Files:**
+  - `app/reranking/__init__.py` (Created)
+  - `app/reranking/base.py` (Created)
+  - `app/reranking/cross_encoder.py` (Created)
+  - `app/retrieval/reranker.py` (Created — re-export shim)
+  - `tests/test_reranker.py` (Created — 40 tests)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\\.venv\\Scripts\\python -m pytest tests/test_reranker.py -v`: **40 passed**
+- **Decisions Made:**
+  - **Injectable Model:** The `model` constructor argument accepts any object exposing `.predict()`, making the reranker fully testable with deterministic fakes without network or disk access.
+  - **Strict Isolation:** No existing BM25, RRF, FAISS, or pipeline code was modified; the reranker is a standalone component.
+  - **Provenance Preservation:** Only the ordering and `score` field of returned `MultimodalSearchResult` objects change; all other fields (`element`, `element_id`, `element_type`, `source_filename`, `page_number`, `metadata`, `related_element_ids`, `content`) are passed through unmodified.
+- **Remaining Limitations:**
+  - Cross-encoder integration into `MultimodalRetrievalPipeline` is the next step.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
+## Day 16: Cross-Encoder Reranking — Task 2: Pipeline Integration
+
+- **Status:** Complete
+- **Goal:** Integrate `CrossEncoderReranker` into `MultimodalRetrievalPipeline` as an optional injectable dependency, adding a `hybrid_retrieve_reranked()` method (Dense FAISS → BM25 → RRF → Cross-Encoder) while preserving 100% backward compatibility with all existing Day 15 retrieval methods.
+- **Components Built:**
+  - **`MultimodalRetrievalPipeline` Reranking Integration (`app/retrieval/multimodal_pipeline.py`):**
+    - Extended `__init__()` to accept an optional `reranker: Optional[BaseReranker] = None` dependency.
+    - Added `has_reranker` property.
+    - Implemented `hybrid_retrieve_reranked(query, dense_top_k, sparse_top_k, candidate_top_k, top_k, rrf_k, reranker)`:
+      - Validates query and all positive-integer thresholds.
+      - Raises `RuntimeError` if neither the pipeline reranker nor an ad-hoc reranker is supplied.
+      - Executes: dense FAISS retrieval → sparse BM25 retrieval → RRF candidate fusion → `CrossEncoderReranker.rerank()`.
+      - Supports an ad-hoc `reranker` argument that overrides the pipeline-level reranker per call.
+      - Preserves full `MultimodalSearchResult` provenance through the entire chain.
+    - Implemented `hybrid_retrieve_reranked_and_assemble()` for end-to-end prompt-ready context with structured citations.
+    - Added convenience aliases: `search_hybrid_reranked`, `retrieve_hybrid_reranked`, `reranked_hybrid_retrieve_text`, `reranked_hybrid_retrieve_and_assemble`.
+    - Extended `retrieve(modality=\"hybrid_reranked\"|\"reranked_hybrid\"|\"hybrid_rerank\"|\"rerank\")` dispatch.
+    - Preserved exact behavior of `retrieve_text()`, `retrieve_sparse()`, `retrieve_visual()`, `hybrid_retrieve_text()`, `retrieve_and_assemble()`, and all Day 15 methods.
+  - **`app/retrieval/__init__.py`:** Re-exported `BaseReranker` and `CrossEncoderReranker` from the retrieval package.
+  - **Comprehensive Integration Tests (`tests/test_multimodal_reranked_retrieval.py`):**
+    - 22 focused integration tests covering: reranked pipeline end-to-end flow, top-k limiting after reranking, ad-hoc reranker override, missing reranker `RuntimeError`, candidate pool expansion before reranking, full provenance preservation, `hybrid_retrieve_reranked_and_assemble()` context assembly, modality dispatch via `retrieve()`, and full backward compatibility for all prior retrieval modes.
+- **Changed Files:**
+  - `app/retrieval/multimodal_pipeline.py` (Modified)
+  - `app/retrieval/__init__.py` (Modified — added reranker re-exports)
+  - `tests/test_multimodal_reranked_retrieval.py` (Created — 22 tests)
+  - `PROJECT_PROGRESS.md` (Updated)
+- **Commands & Actual Test Results:**
+  - `.\\.venv\\Scripts\\python -m pytest tests/test_multimodal_reranked_retrieval.py -v`: **22 passed**
+  - `.\\.venv\\Scripts\\python -m pytest tests/test_reranker.py tests/test_multimodal_reranked_retrieval.py tests/test_multimodal_hybrid_retrieval.py -v`: **81 passed**
+- **Decisions Made:**
+  - **Backward Compatibility First:** All existing constructor signatures and defaults remain unchanged; a pipeline without a reranker behaves identically to Day 15.
+  - **Fail Fast:** `hybrid_retrieve_reranked()` raises `RuntimeError` immediately if no reranker is available rather than silently returning RRF-only results, preventing silent degradation.
+  - **Reranker Reuse:** `CrossEncoderReranker` is consumed as-is; no reranking logic is duplicated inside the pipeline.
+- **Remaining Limitations:**
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
+## Day 16: Cross-Encoder Reranking — Task 3: Live Evaluation on Sample Paper
+
+- **Status:** Complete
+- **Goal:** Evaluate whether Cross-Encoder reranking meaningfully improves retrieval quality over the Day 15 Hybrid RRF baseline using five representative queries against `data/sample_paper.pdf`.
+- **Evaluation Approach:**
+  - Built a full `MultimodalRetrievalPipeline` (384-d FAISS + BM25 + RRF + `CrossEncoderReranker`) from the canonical `data/sample_paper.pdf`.
+  - For each query, compared side-by-side: Hybrid RRF top-5 results vs. Hybrid RRF + Cross-Encoder top-5 results.
+  - Inspected ranking changes, element type (`TEXT`, `CAPTION`, `TABLE`, `EQUATION`, `IMAGE`), page number, element ID, and score.
+- **Queries Evaluated:**
+  1. Conceptual query: "attention mechanism scaled dot product"
+  2. Keyword query: "multi-head attention"
+  3. Equation/symbol query: "d_k scaling factor softmax"
+  4. Architectural query: "encoder decoder layers"
+  5. Figure query: "FIGURE 3 AI RMF NIST"
+- **Key Findings:**
+  - For most conceptual and keyword queries, Cross-Encoder reranking demonstrably improved precision: licensing/boilerplate chunks that keyword-matched surface terms were demoted, while substantive conceptual paragraphs were promoted.
+  - The reranker successfully corrected keyword-overlap ranking errors in queries 1–4, bringing the most information-dense paragraphs to the top.
+  - **Known Limitation (Figure Query):** For query 5 ("FIGURE 3 AI RMF NIST"), the Cross-Encoder assigned higher relevance to surrounding narrative/explanatory paragraphs describing the figure than to the concise figure caption itself. This is expected behavior for a passage-trained cross-encoder (trained on web text pairs) operating over heterogeneous scientific document elements where captions are structurally short and information-dense. This behavior is treated as an **active known limitation**, not a solved problem. Future directions include caption-specific prompt templates or fine-tuning on scientific document pairs.
+- **Changed Files:**
+  - `PROJECT_PROGRESS.md` (Updated)
+  - Scratch evaluation scripts (disposable — not part of application code)
+- **Commands & Actual Test Results:**
+  - No new tests added (evaluation task — documentation only).
+  - All 406 project tests continue to pass.
+- **Decisions Made:**
+  - **No Architecture Changes:** Evaluation findings are recorded as documentation; no retrieval code, tests, or indices were modified.
+  - **Limitation Preserved:** The figure/caption preference behavior is recorded honestly as a known limitation and future evaluation direction rather than worked around heuristically.
+- **Remaining Limitations:**
+  - Cross-Encoder can prefer explanatory narrative text over exact figure captions for figure-focused queries. Caption-aware reranking or domain fine-tuning is a future direction.
+  - Vector index persistence (save/load) is not yet implemented.
+  - LLM generation integration and UI remain part of later work.
+- **Blockers:**
+  - None.
+
+---
+
 ## Handoff
 
-- **Status:** Day 15 is complete (Tasks 1, 2, 3, and 4 all complete and verified).
-- **Next Planned Day (Day 16):** Cross-encoder reranking over retrieved multimodal context.
-
-
+- **Status:** Day 16 is complete (Tasks 1, 2, and 3 all complete and verified).
+- **Next Planned Day (Day 17):** Continued reranking improvements or evaluation framework (per roadmap: Days 18–22 cover Ragas evaluation, ground truth construction, and retrieval/generation metrics).
 
 

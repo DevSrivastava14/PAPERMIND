@@ -1,0 +1,21 @@
+"""Reranking interface exposed under retrieval namespace for convenience."""
+
+from app.reranking.base import BaseReranker
+from app.reranking.cross_encoder import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_CROSS_ENCODER_MODEL,
+    CrossEncoderReranker,
+    ScoreCountMismatchError,
+    default_candidate_text_extractor,
+    rerank_cross_encoder,
+)
+
+__all__ = [
+    "BaseReranker",
+    "CrossEncoderReranker",
+    "ScoreCountMismatchError",
+    "DEFAULT_CROSS_ENCODER_MODEL",
+    "DEFAULT_BATCH_SIZE",
+    "default_candidate_text_extractor",
+    "rerank_cross_encoder",
+]

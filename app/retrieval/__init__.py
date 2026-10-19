@@ -17,6 +17,11 @@ from app.retrieval.multimodal_pipeline import (
     build_multimodal_pipeline,
 )
 from app.retrieval.pipeline import RetrievalPipeline, build_pipeline
+from app.retrieval.reranker import (
+    BaseReranker,
+    CrossEncoderReranker,
+    rerank_cross_encoder,
+)
 from app.retrieval.rrf import (
     DEFAULT_RRF_K,
     ReciprocalRankFusion,
@@ -40,6 +45,9 @@ __all__ = [
     "DEFAULT_RRF_K",
     "ReciprocalRankFusion",
     "reciprocal_rank_fusion",
+    "BaseReranker",
+    "CrossEncoderReranker",
+    "rerank_cross_encoder",
 ]
 
 
