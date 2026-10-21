@@ -65,6 +65,8 @@ class MultimodalReranker(BaseReranker):
     @staticmethod
     def _normalize_clip(values: Sequence[float]) -> List[float]:
         """Maps cosine relevance to a deterministic bounded non-negative score."""
+        if len(values) == 1:
+            return [0.5]
         return [min(1.0, max(0.0, value)) for value in values]
 
     def rerank(

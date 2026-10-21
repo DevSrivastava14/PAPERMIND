@@ -1,0 +1,348 @@
+{
+  "metadata": {
+    "name": "day23_q1_q6_lightweight_retrieval_baseline",
+    "date": "2026-10-22",
+    "pdf_path": "data/sample_paper.pdf",
+    "questions": "Q1-Q6",
+    "top_k": 5,
+    "configurations": [
+      "dense",
+      "hybrid_rrf",
+      "hybrid_reranked"
+    ],
+    "evaluation_type": "retrieval_only",
+    "groq_status": {
+      "run": false,
+      "status": "not_run",
+      "reason": "Day 23 checkpoint was intentionally retrieval-only; no Groq or DeepEval calls were made."
+    },
+    "reproducible_with": [
+      "app.evaluation.evaluate_retrieval.build_sample_paper_document",
+      "app.evaluation.retrieval_dataset.get_retrieval_evaluation_dataset",
+      "app.evaluation.runner.create_evaluation_pipeline",
+      "app.evaluation.runner.RetrievalEvaluationRunner"
+    ],
+    "notes": [
+      "The standard hybrid_reranked configuration uses the default text-only CrossEncoderReranker.",
+      "The Q6 multimodal result is recorded separately under additional_validations.",
+      "Retrieval measurements are valid; no LLM quality measurements were attempted."
+    ]
+  },
+  "questions": [
+    {
+      "id": "Q1",
+      "query": "What is the difference between “AI for Security” and “Security for AI”?",
+      "expected_evidence_ids": [
+        "sample_paper.pdf#chunk_10",
+        "sample_paper.pdf#chunk_14"
+      ],
+      "results": {
+        "dense": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_6", "element_type": "text", "score": 0.756920},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 0.648635},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_14", "element_type": "text", "score": 0.592204},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_34", "element_type": "text", "score": 0.572232},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_20", "element_type": "text", "score": 0.565187}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 0.5
+        },
+        "hybrid_rrf": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_6", "element_type": "text", "score": 0.032018},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_14", "element_type": "text", "score": 0.031258},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_24", "element_type": "text", "score": 0.016393},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 0.016129},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_37", "element_type": "text", "score": 0.016129}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 0.5
+        },
+        "hybrid_reranked": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 4.849635},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_14", "element_type": "text", "score": 4.522132},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_6", "element_type": "text", "score": 4.191978},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_2", "element_type": "text", "score": 2.031798},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_35", "element_type": "text", "score": -0.704448}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        }
+      }
+    },
+    {
+      "id": "Q2",
+      "query": "Why does the author say Strong AI is not yet practical, and how does it differ from Weak AI?",
+      "expected_evidence_ids": ["sample_paper.pdf#chunk_10"],
+      "results": {
+        "dense": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": 0.741295},
+            {"rank": 2, "element_id": "sample_paper.pdf#page_2_img_2", "element_type": "image", "score": 0.741295},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 0.597618},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 0.574428},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_7", "element_type": "text", "score": 0.549216}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "reciprocal_rank": 0.333333
+        },
+        "hybrid_rrf": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 0.032002},
+            {"rank": 2, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": 0.031778},
+            {"rank": 3, "element_id": "sample_paper.pdf#page_2_img_2", "element_type": "image", "score": 0.031778},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 0.031498},
+            {"rank": 5, "element_id": "sample_paper.pdf#page_2_cap_0", "element_type": "caption", "score": 0.031281}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_reranked": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 5.412463},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 2.414292},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_8", "element_type": "text", "score": 1.611604},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_7", "element_type": "text", "score": 0.970506},
+            {"rank": 5, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": -0.259838}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "reciprocal_rank": 1.0
+        }
+      }
+    },
+    {
+      "id": "Q3",
+      "query": "What is MITRE ATLAS and what is its purpose?",
+      "expected_evidence_ids": ["sample_paper.pdf#chunk_23", "sample_paper.pdf#chunk_41"],
+      "results": {
+        "dense": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_23", "element_type": "text", "score": 0.405294},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_4", "element_type": "text", "score": 0.184102},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_41", "element_type": "text", "score": 0.176339},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_11", "element_type": "text", "score": 0.161811},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_3", "element_type": "text", "score": 0.140127}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_rrf": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_23", "element_type": "text", "score": 0.032522},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_41", "element_type": "text", "score": 0.032266},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_11", "element_type": "text", "score": 0.031498},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_4", "element_type": "text", "score": 0.016129},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_24", "element_type": "text", "score": 0.015625}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_reranked": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_23", "element_type": "text", "score": 2.709983},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_41", "element_type": "text", "score": -3.902616},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_35", "element_type": "text", "score": -9.345531},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_4", "element_type": "text", "score": -10.151974},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_31", "element_type": "text", "score": -10.418407}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        }
+      }
+    },
+    {
+      "id": "Q4",
+      "query": "How do data poisoning, model poisoning, and model inversion attacks differ?",
+      "expected_evidence_ids": ["sample_paper.pdf#chunk_21", "sample_paper.pdf#chunk_22"],
+      "results": {
+        "dense": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_22", "element_type": "text", "score": 0.645900},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_21", "element_type": "text", "score": 0.645525},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_17", "element_type": "text", "score": 0.394101},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_20", "element_type": "text", "score": 0.392695},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_18", "element_type": "text", "score": 0.329255}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_rrf": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_21", "element_type": "text", "score": 0.032522},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_22", "element_type": "text", "score": 0.032522},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_17", "element_type": "text", "score": 0.015873},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_8", "element_type": "text", "score": 0.015873},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_14", "element_type": "text", "score": 0.015625}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_reranked": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_21", "element_type": "text", "score": 5.573682},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_22", "element_type": "text", "score": 4.443280},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_17", "element_type": "text", "score": -6.364253},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_20", "element_type": "text", "score": -6.475698},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_15", "element_type": "text", "score": -7.506749}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 2,
+          "reciprocal_rank": 1.0
+        }
+      }
+    },
+    {
+      "id": "Q5",
+      "query": "What are the four functions of the NIST AI RMF Core, and what does each one do?",
+      "expected_evidence_ids": ["sample_paper.pdf#chunk_31"],
+      "results": {
+        "dense": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#page_5_cap_0", "element_type": "caption", "score": 0.591593},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_30", "element_type": "text", "score": 0.476824},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_5", "element_type": "text", "score": 0.433302},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_31", "element_type": "text", "score": 0.428098},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_26", "element_type": "text", "score": 0.424994}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "reciprocal_rank": 0.25
+        },
+        "hybrid_rrf": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_30", "element_type": "text", "score": 0.032522},
+            {"rank": 2, "element_id": "sample_paper.pdf#page_5_cap_0", "element_type": "caption", "score": 0.032266},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_31", "element_type": "text", "score": 0.031010},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_37", "element_type": "text", "score": 0.016129},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_5", "element_type": "text", "score": 0.015873}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "reciprocal_rank": 0.333333
+        },
+        "hybrid_reranked": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#chunk_30", "element_type": "text", "score": 4.179765},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_31", "element_type": "text", "score": 3.325820},
+            {"rank": 3, "element_id": "sample_paper.pdf#page_5_cap_0", "element_type": "caption", "score": -0.036120},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_43", "element_type": "text", "score": -1.237347},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_27", "element_type": "text", "score": -5.258608}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "reciprocal_rank": 0.5
+        }
+      }
+    },
+    {
+      "id": "Q6",
+      "query": "What does Figure 2 show, and how are Weak AI and Strong AI broken down?",
+      "expected_evidence_ids": ["sample_paper.pdf#page_2_cap_1"],
+      "related_evidence_ids": ["sample_paper.pdf#page_2_img_2"],
+      "results": {
+        "dense": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": 0.863072},
+            {"rank": 2, "element_id": "sample_paper.pdf#page_2_img_2", "element_type": "image", "score": 0.863072},
+            {"rank": 3, "element_id": "sample_paper.pdf#page_2_cap_0", "element_type": "caption", "score": 0.529453},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 0.499292},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_7", "element_type": "text", "score": 0.484670}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "related_evidence_retrieved": true,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_rrf": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": 0.032787},
+            {"rank": 2, "element_id": "sample_paper.pdf#page_2_img_2", "element_type": "image", "score": 0.032787},
+            {"rank": 3, "element_id": "sample_paper.pdf#page_2_cap_0", "element_type": "caption", "score": 0.032258},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 0.031010},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 0.030777}
+          ],
+          "expected_evidence_retrieved": true,
+          "primary_evidence_hit_count": 1,
+          "related_evidence_retrieved": true,
+          "reciprocal_rank": 1.0
+        },
+        "hybrid_reranked": {
+          "valid": true,
+          "retrieved_evidence": [
+            {"rank": 1, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": 5.248332},
+            {"rank": 2, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 1.798770},
+            {"rank": 3, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 1.751900},
+            {"rank": 4, "element_id": "sample_paper.pdf#chunk_8", "element_type": "text", "score": 1.369374},
+            {"rank": 5, "element_id": "sample_paper.pdf#chunk_7", "element_type": "text", "score": -2.228327}
+          ],
+          "expected_evidence_retrieved": true,
+          "related_evidence_retrieved": false,
+          "reciprocal_rank": 1.0,
+          "notes": "Default text-only CrossEncoderReranker; related image was present before reranking but excluded from final top-5."
+        }
+      }
+    }
+  ],
+  "additional_validations": {
+    "q6_multimodal_reranker": {
+      "valid": true,
+      "configuration": "hybrid_reranked",
+      "reranker": "MultimodalReranker",
+      "top_k": 5,
+      "retrieved_evidence": [
+        {"rank": 1, "element_id": "sample_paper.pdf#page_2_cap_1", "element_type": "caption", "score": 1.0},
+        {"rank": 2, "element_id": "sample_paper.pdf#chunk_9", "element_type": "text", "score": 0.811413},
+        {"rank": 3, "element_id": "sample_paper.pdf#chunk_10", "element_type": "text", "score": 0.806566},
+        {"rank": 4, "element_id": "sample_paper.pdf#chunk_8", "element_type": "text", "score": 0.788047},
+        {"rank": 5, "element_id": "sample_paper.pdf#page_2_img_2", "element_type": "image", "score": 0.6}
+      ],
+      "caption_retrieved": true,
+      "related_image_retrieved": true,
+      "multimodal_fix": "Single-image CLIP normalization uses an explicit neutral 0.5 value; multiple-image behavior is unchanged."
+    }
+  },
+  "modality_coverage": {
+    "table": {
+      "extracted_element_count": 0,
+      "valid_measurement": false,
+      "status": "not_runnable",
+      "reason": "The canonical sample paper contains no extracted table elements."
+    },
+    "equation": {
+      "extracted_element_count": 0,
+      "valid_measurement": false,
+      "status": "not_runnable",
+      "reason": "The canonical sample paper contains no extracted equation elements."
+    }
+  }
+}

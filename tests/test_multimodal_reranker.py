@@ -235,7 +235,7 @@ def test_ce_normalization_is_not_rebased_by_unrelated_extreme():
     assert abs(without_extreme - with_extreme) < 0.2
 
 
-def test_clip_single_candidate_normalization_is_not_min_max_sentinel(reranker):
+def test_clip_single_candidate_normalization_uses_explicit_neutral_value(reranker):
     single = reranker.rerank(
         "query",
         [candidate("image", ElementType.IMAGE, b"good", 0.5)],
@@ -249,7 +249,8 @@ def test_clip_single_candidate_normalization_is_not_min_max_sentinel(reranker):
     )
     paired_image = next(item for item in paired if item.element_id == "image")
     assert single.clip_score is not None and 0.0 <= single.clip_score <= 1.0
-    assert single.clip_score == paired_image.clip_score
+    assert single.clip_score == 0.5
+    assert paired_image.clip_score == 1.0
 
 
 def test_clip_identical_scores_remain_tied(reranker):

@@ -1065,3 +1065,140 @@ Build a multimodal scientific research paper assistant that answers questions ab
   - Day 22 completed the score-normalization stabilization needed for the multimodal reranker. The system now has deterministic behavior for narrow CE ranges and single-image CLIP candidates while preserving the existing retrieval/reranking architecture. Further statistical calibration is intentionally deferred.
 
 ---
+
+## Day 23: Lightweight Retrieval Baseline & Multimodal Coverage
+
+- **Status:** PASS
+- Completed the Q1–Q6 retrieval checkpoint across:
+  - `dense`
+  - `hybrid_rrf`
+  - `hybrid_reranked`
+- Q1–Q5 had no meaningful retrieval failures.
+- Q6 exposed a real multimodal ranking issue caused by the Day 22 CLIP normalization change.
+- A frozen-candidate comparison confirmed that the normalization change moved the related Figure 2 image from rank 5 to rank 6.
+- Added the targeted single-image CLIP normalization fix using an explicit neutral score of `0.5`.
+- Focused multimodal reranker validation: **11 passed**.
+- Targeted Q6 validation now preserves both:
+  - Figure 2 caption: `sample_paper.pdf#page_2_cap_1`
+  - Related image: `sample_paper.pdf#page_2_img_2`
+  - Both are present in the final top 5 with the opt-in `MultimodalReranker`.
+- Table/equation evaluation was not possible because the canonical PDF contains zero extracted table/equation elements. This remains a dataset coverage limitation, not a retrieval result.
+- Created the lightweight baseline artifact:
+  - [data/evaluation/day23_lightweight_baseline.json](data/evaluation/day23_lightweight_baseline.json)
+- Preserved the existing `baseline_retrieval_results.json`.
+- No Groq, DeepEval, full benchmark, or full test suite was run during Day 23.
+
+## Day 24: Production API / Application Layer
+
+- **Status:** Next priority
+- Turn the existing PaperMind pipeline into a usable application/API.
+- PDF upload → ingestion → multimodal extraction → indexing.
+- Query → retrieval → reranking → grounded context.
+- Reuse the existing architecture; do not redesign retrieval.
+- Establish clean API boundaries and request/response models.
+- Keep the implementation focused on a working end-to-end application flow.
+
+## Day 25: Grounded Answer Generation + End-to-End Evaluation
+
+- Integrate grounded answer generation using the existing retrieval and context pipeline.
+- Generate answers only from retrieved evidence with usable citations/provenance.
+- Reuse the existing DeepEval infrastructure already implemented in the project.
+- Run a small representative DeepEval evaluation of the actual end-to-end PaperMind application.
+- Do not build a new evaluation framework or large benchmark.
+- Use a small representative question set, including normal text, multimodal/figure, and insufficient-evidence cases where practical.
+- Prioritize meaningful engineering metrics:
+  - answer faithfulness/groundedness
+  - answer relevancy
+  - contextual relevancy
+  - contextual precision/recall where meaningful
+- Keep Groq usage controlled.
+- Clearly separate valid DeepEval measurements from Groq/API/rate-limit failures.
+- Record meaningful failures and fixes rather than optimizing minor metric differences.
+- Establish that the final application retrieves useful evidence, produces grounded answers, provides citations, and refuses or limits unsupported answers.
+
+## Day 26: Reliability & Guardrails
+
+- Invalid/empty PDFs.
+- Malformed queries.
+- Retrieval/indexing failures.
+- LLM/API failures and timeouts.
+- Unsupported files.
+- Insufficient-evidence behavior.
+
+## Day 27: Security
+
+- File validation and size limits.
+- Safe filenames/paths.
+- Untrusted document and prompt-injection considerations.
+- API input validation.
+- Secrets and environment handling.
+
+## Day 28: Performance
+
+- Measure actual bottlenecks:
+  - parsing
+  - embeddings
+  - FAISS
+  - BM25
+  - RRF
+  - reranking
+  - LLM generation
+- Optimize only if measurements justify it.
+- Otherwise document the measurements.
+
+## Day 29: Observability
+
+- Track:
+  - `request_id`
+  - `document_id`
+  - query
+  - retrieval configuration
+  - candidate count
+  - reranker
+  - latency
+  - top results
+  - LLM latency
+  - failure reason
+- Add tracing or metrics only if they provide meaningful value.
+
+## Day 30: Docker + Reproducibility
+
+- `docker compose up` should start the system.
+- Define the application and required services.
+- Provide environment configuration.
+- Add persistence where appropriate.
+- Add health checks.
+- Provide clear startup instructions.
+
+## Day 31: Documentation
+
+- Architecture.
+- Engineering decisions and tradeoffs.
+- Evaluation methodology and results.
+- Meaningful failures and fixes.
+- Known limitations.
+- Reproduction instructions.
+
+## Day 32: Final Engineering Polish
+
+- Review code organization, naming, and error handling.
+- Review tests, API, Docker, logging, and configuration.
+- Add or update `.env.example`.
+- Review dependencies, dead code, and confusing abstractions.
+- Do not add major new features.
+
+## Day 33: Interview / Portfolio Readiness
+
+Prepare explanations for:
+
+- architecture choices
+- dense + BM25 + RRF
+- relationship expansion
+- multimodal retrieval/reranking
+- why text cross-encoders cannot directly rank raw images
+- reliability and security
+- evaluation
+- scalability to 100,000 papers
+- engineering tradeoffs
+
+The roadmap is outcome-driven. Tools such as Langfuse, Ragas, additional calibration, or other infrastructure will be introduced only if they materially improve the system.
