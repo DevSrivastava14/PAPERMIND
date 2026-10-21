@@ -940,34 +940,38 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Day 19: Multimodal Retrieval Evaluation & Validation
 
-- **Status:** Planned
-- **Primary Goal:** Validate that the new relationship-aware multimodal retrieval behavior generalizes beyond Q6 before making larger retrieval or reranking architectural changes.
-- **Planned Tasks:**
-  1. **Expand targeted retrieval validation beyond Q6:**
-     - Identify evaluation questions involving text, captions, images, tables, and equations.
-     - Prioritize questions where multimodal relationships are relevant.
-  2. **Test relationship expansion behavior:**
-     - Verify that retrieved captions correctly bring related images into the candidate set.
-     - Verify that unrelated elements are not unnecessarily expanded.
-     - Verify deduplication and one-hop behavior.
-     - Ensure existing text-only retrieval behavior remains stable.
-  3. **Compare retrieval configurations after the Day 18 change:**
-     - Dense.
-     - BM25.
-     - Hybrid RRF.
-     - Hybrid reranked.
-  4. **Use targeted retrieval inspection and existing DeepEval retrieval evaluation where useful:**
-     - Do not run the full benchmark unless targeted results justify it.
-     - Preserve the existing DeepEval evaluation architecture.
-     - Do not introduce Ragas yet.
-  5. **Investigate whether multimodal retrieval quality improves on representative questions without changing the current cross-encoder.**
-  6. **Document the remaining limitation:**
-     - Relationship-expanded images can enter the candidate pool.
-     - The current text cross-encoder cannot semantically rank raw image elements.
-     - A future multimodal reranking strategy may therefore be required.
-- **Success Criterion:**
-  - Establish whether the Day 18 relationship-aware retrieval improvement generalizes across multiple evidence types and produces a measurable retrieval improvement without destabilizing existing retrieval behavior.
-- **Constraints:**
-  - Do not prematurely implement a multimodal cross-encoder or other major reranking architecture during Day 19.
+- **Status:** Complete
+- **Objective:** Validate that Day 18 relationship-aware multimodal retrieval generalizes beyond Q6 before making larger retrieval or reranking architectural changes.
+- **Targeted Scope:**
+  - Inspected Q1–Q6 across dense, BM25, hybrid RRF, and hybrid reranked retrieval.
+  - Used targeted retrieval inspection rather than the full benchmark.
+  - Preserved the existing retrieval and DeepEval evaluation architecture.
+  - Did not introduce Ragas or modify the cross-encoder architecture.
+- **Retrieval Inspection Results:**
+  - Q1–Q5 retained their relevant textual evidence across the four configurations, with no material regression attributable to the Day 18 relationship expansion.
+  - Q6 confirmed the Figure 2 caption and related image can be returned together by dense, BM25, and hybrid RRF retrieval.
+  - Hybrid reranking received the related Q6 image in its pre-rerank candidate pool.
+  - Result IDs remained deduplicated in the inspected outputs.
+- **Q2/Q6 Relationship-Expansion Findings:**
+  - Caption → image expansion works for the resolved Figure 2 relationship.
+  - Expansion is one-hop and deduplicated; unrelated recursive graph traversal was not introduced.
+  - The related image enters the candidate pool when its caption is retrieved.
+  - The current text cross-encoder can remove the raw image during final reranking because it cannot semantically score binary image content.
+  - For Q6, the image remained in dense, BM25, and hybrid RRF final results but was excluded from the final hybrid-reranked top five.
+- **DeepEval Evaluation Attempt:**
+  - A targeted Q2/Q6 evaluation was attempted with dense and hybrid reranked configurations using the existing contextual relevancy, contextual precision, and contextual recall metrics.
+  - Groq judge model: `openai/gpt-oss-120b`.
+  - Several metric calls exceeded the approximately 8K tokens-per-minute limit.
+  - Consequently, failed metric calls and evaluator aggregate zeros are not valid quality measurements and are not used as evidence of retrieval quality or regression.
+- **Coverage Limitation:**
+  - The canonical evaluation dataset has no dedicated table-specific or equation-specific questions.
+  - Table and equation retrieval quality therefore remains unvalidated.
+- **Conclusion:**
+  - Relationship-aware retrieval works and provides a real multimodal candidate-generation improvement.
+  - Q6 also exposed the remaining limitation: final multimodal ranking is constrained by the current text-only cross-encoder.
+- **Upcoming Plan:**
+  - Establish a lightweight, reliable evaluation baseline.
+  - Then investigate, design, and implement a multimodal reranking approach in a dedicated future phase.
+  - A multimodal reranker has not yet been implemented.
 
 ---
