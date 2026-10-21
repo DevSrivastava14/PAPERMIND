@@ -100,6 +100,48 @@ class MultimodalRetrievalPipeline:
             self._visual_embedder = get_multimodal_embedder().visual_embedder
         return self._visual_embedder
 
+    def _expand_related_results(
+        self,
+        results: List[MultimodalSearchResult],
+    ) -> List[MultimodalSearchResult]:
+        """Append directly related elements without recursively traversing relationships."""
+        expanded: List[MultimodalSearchResult] = []
+        seen_ids = set()
+
+        for result in results:
+            result_id = result.element_id or result.element.element_id
+            if result_id not in seen_ids:
+                expanded.append(result)
+                seen_ids.add(result_id)
+
+            for related_id in result.related_element_ids or []:
+                related_element = self.index.text_index.get_element_by_element_id(
+                    related_id
+                )
+                if related_element is None:
+                    related_element = (
+                        self.index.visual_index.get_element_by_element_id(related_id)
+                    )
+                if related_element is None or related_element.element_id in seen_ids:
+                    continue
+
+                expanded.append(
+                    MultimodalSearchResult(
+                        element=related_element,
+                        score=result.score,
+                        element_id=related_element.element_id,
+                        element_type=related_element.element_type,
+                        source_filename=related_element.source_filename,
+                        page_number=related_element.page_number,
+                        related_element_ids=list(
+                            related_element.related_element_ids
+                        ),
+                    )
+                )
+                seen_ids.add(related_element.element_id)
+
+        return expanded
+
     def retrieve_text(
         self,
         query: Union[str, np.ndarray],
@@ -118,17 +160,19 @@ class MultimodalRetrievalPipeline:
         if isinstance(query, str):
             if not query.strip():
                 return []
-            return self.index.search_text(
+            results = self.index.search_text(
                 query=query,
                 top_k=effective_k,
                 embedder=self.text_embedder,
             )
+            return self._expand_related_results(results)
 
         if isinstance(query, np.ndarray):
-            return self.index.search_text_by_vector(
+            results = self.index.search_text_by_vector(
                 query_vector=query,
                 top_k=effective_k,
             )
+            return self._expand_related_results(results)
 
         raise TypeError(
             f"query must be a string or NumPy ndarray, got {type(query).__name__}"
@@ -202,7 +246,8 @@ class MultimodalRetrievalPipeline:
         if not query.strip():
             return []
 
-        return self.bm25_index.search(query=query, top_k=effective_k)
+        results = self.bm25_index.search(query=query, top_k=effective_k)
+        return self._expand_related_results(results)
 
     def hybrid_retrieve_text(
         self,
@@ -268,7 +313,7 @@ class MultimodalRetrievalPipeline:
             top_k=effective_top_k,
         )
 
-        return fused_results
+        return self._expand_related_results(fused_results)
 
     def hybrid_retrieve_reranked(
         self,
@@ -358,6 +403,7 @@ class MultimodalRetrievalPipeline:
             k=rrf_k,
             top_k=rrf_limit,
         )
+        rrf_candidates = self._expand_related_results(rrf_candidates)
 
         if not rrf_candidates:
             return []
@@ -534,5 +580,4 @@ def build_multimodal_pipeline(
         bm25_index=bm25_index,
         reranker=reranker,
     )
-
 

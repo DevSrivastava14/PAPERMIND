@@ -1,0 +1,87 @@
+{
+  "provider": "OpenAIModel (qwen/qwen3.8-27b) via Groq",
+  "all_configurations_completed": true,
+  "duration_seconds": 329.99,
+  "configurations": {
+    "dense": {
+      "contextual_relevancy": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the retrieval context contains no relevant statements to address the input. It fails to distinguish between 'AI for Security' and 'Security for AI', instead offering unrelated fragments about 'Process AI', 'Jira automation', and general AI goals, while key phrases like 'shed light on the various nu-' are cut off without providing the requested distinction.",
+        "error": null
+      },
+      "contextual_precision": {
+        "score": 0,
+        "success": false,
+        "reason": "The score is 0.00 because none of the retrieved nodes are relevant to the input. The first node is 'too vague and does not provide the specific definitions or distinctions', the second node discusses 'Process AI' and 'weak AI classification' which is unrelated, the third node 'does not define the two specific terms', the fourth node is a 'general conclusion about AI making lives easier', and the fifth node 'does not provide the clear definitions' required. Since all nodes are irrelevant, the precision is zero.",
+        "error": null
+      },
+      "contextual_recall": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the retrieval context fails to support any part of the expected output. Specifically, node 1 in retrieval context mentions connecting AI and information security fields but lacks the specific definitions for 'AI for Security' and 'Security for AI' provided in sentences 1 and 2 of the expected output, including the details about protecting AI infrastructure for critical business or nation-state needs.",
+        "error": null
+      }
+    },
+    "bm25": {
+      "contextual_relevancy": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the retrieval context contains only fragmented sentences and bibliographic citations, such as 'ulnerabilities and tactics, techniques and procedures' and 'and conscious- ness. In 2023 9th International Conference...', which fail to provide any information regarding the specific difference between 'AI for Security' and 'Security for AI'.",
+        "error": null
+      },
+      "contextual_precision": {
+        "score": 0,
+        "success": false,
+        "reason": "The score is 0.00 because none of the retrieved nodes are relevant to the input. The first node discusses 'vulnerabilities and tactics' but fails to define the specific terms, the second is an irrelevant citation fragment regarding consciousness, the third mentions 'AI misuse' without providing the required distinction, the fourth connects 'AI, information security and risk' but lacks the specific definitions, and the fifth discusses 'vulnerability' and 'non-compliance' in a general context. Since all nodes are irrelevant, the precision is zero.",
+        "error": null
+      },
+      "contextual_recall": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the expected output's definitions for 'AI for Security' and 'Security for AI' (sentences 1 and 2) are not supported by the retrieval context. While nodes in retrieval context discuss general topics like vulnerabilities and AI misuse, none provide the specific definitions or the condition regarding critical infrastructure mentioned in the expected output.",
+        "error": null
+      }
+    },
+    "hybrid_rrf": {
+      "contextual_relevancy": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the retrieval context contains no relevant statements to address the input. It consists of fragmented text discussing unrelated topics such as 'vulnerability and compliance', 'Process AI', and 'Jira automation', and fails to provide any specific information regarding the difference between 'AI for Security' and 'Security for AI'.",
+        "error": null
+      },
+      "contextual_precision": {
+        "score": 0,
+        "success": false,
+        "reason": "The score is 0.00 because all retrieved nodes are irrelevant to the input. The first node mentions connecting 'AI, information security and risk' but does not define the specific concepts, the second discusses 'vulnerability' and 'non-compliance' without addressing the distinction, the third refers to 'vulnerabilities and tactics' lacking comparative analysis, the fourth discusses 'Process AI' and 'weak AI' which is unrelated, and the fifth is a citation fragment mentioning 'consciousness' with no security information. Since no relevant nodes were retrieved, the precision is zero.",
+        "error": null
+      },
+      "contextual_recall": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the retrieval context fails to support any part of the expected output. Specifically, node 1 in retrieval context mentions the connection between AI and security but does not define 'AI for Security' as using AI to solve security problems, nor do any nodes define 'Security for AI' as designing measures to protect AI infrastructure.",
+        "error": null
+      }
+    },
+    "hybrid_reranked": {
+      "contextual_relevancy": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because the retrieval context is entirely irrelevant to the input. It contains only fragmented statements about 'Process AI', 'Jira automation', and general 'vulnerability' or 'AI misuse', with no relevant statements provided to explain the specific difference between 'AI for Security' and 'Security for AI'.",
+        "error": null
+      },
+      "contextual_precision": {
+        "score": 0,
+        "success": false,
+        "reason": "The score is 0.00 because none of the retrieval contexts are relevant to the input. The first node discusses 'Process AI' and 'weak AI' in the context of automation, which does not address the specific definitions or differences between 'AI for Security' and 'Security for AI'. The second node mentions 'vulnerability' and 'non-compliance' but does not define the concepts of 'AI for Security' or 'Security for AI' nor explain the difference between them. The third node, while it mentions connecting 'AI, information security and risk', it does not provide the specific definitions or the distinction required to answer the question about the difference between the two terms. The fourth node lists 'Artificial intelligence, Generative AI, Security, Risk' as index terms but does not contain the explanatory content needed to define the difference between the two concepts. Finally, the fifth node refers to 'consequences of AI misuse' but does not explicitly define 'Security for AI' as protecting AI infrastructure or 'AI for Security' as using AI to solve security problems.",
+        "error": null
+      },
+      "contextual_recall": {
+        "score": 0.0,
+        "success": false,
+        "reason": "The score is 0.00 because none of the nodes in retrieval context support the expected output; specifically, nodes 1-5 fail to provide the specific definitions for 'AI for Security' and 'Security for AI' found in sentences 1 and 2 of the expected output.",
+        "error": null
+      }
+    }
+  }
+}

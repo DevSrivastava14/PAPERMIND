@@ -889,9 +889,85 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ---
 
-## Handoff
+## Day 18: Multimodal Retrieval / Q6 Investigation
 
-- **Status:** Day 16 is complete (Tasks 1, 2, and 3 all complete and verified).
-- **Next Planned Day (Day 17):** Continued reranking improvements or evaluation framework (per roadmap: Days 18–22 cover Ragas evaluation, ground truth construction, and retrieval/generation metrics).
+- **Status:** Complete
+- **Goal:** Trace and repair the Q6 Figure 2 multimodal retrieval path while preserving the existing retrieval architecture.
+- **Investigation:**
+  - Traced Q6 end-to-end through the retrieval dataset, multimodal document assembly, embeddings, visual/text FAISS, BM25, RRF, relationship expansion, and cross-encoder reranking.
+  - Identified two root causes:
+    1. The Figure 2 caption relationship referenced the incorrect/nonexistent image ID `sample_paper.pdf#page_2_imgblock_2`, while the actual extracted/indexed image is `sample_paper.pdf#page_2_img_2`.
+    2. Existing text retrieval configurations did not perform relationship-based multimodal expansion, so the related image could never enter the candidate set.
+- **Implemented:**
+  - Fixed caption-to-image association using the PDF image block's actual `number` field and the existing `#img_{index}` ID convention.
+  - Added minimal one-hop, deduplicated relationship expansion to the retrieval pipeline:
+    - Preserves the original result.
+    - Adds directly related elements.
+    - Preserves score and provenance.
+    - Avoids recursive graph traversal.
+  - Applied expansion before reranking so related image evidence enters the cross-encoder candidate pool.
+  - Updated the Q6 dataset's invalid image ID to the actual indexed image ID.
+- **Regression Tests:**
+  - Added coverage for:
+    - Q6 caption → Figure 2 image relationship resolution.
+    - Q6 retrieval returning both caption and image.
+    - Image retaining `ElementType.IMAGE`.
+    - Normal text-only retrieval remaining unchanged.
+- **Commands & Actual Test Results:**
+  - Targeted validation: **6 passed, 61 deselected**.
+  - No full test suite was run.
+- **Final Q6 Inspection:**
+  - Dense retrieval includes the Figure 2 caption and image.
+  - BM25 retrieval includes the Figure 2 caption and image.
+  - Hybrid RRF includes the Figure 2 caption and image.
+  - Hybrid reranking receives the image in its pre-rerank candidate pool.
+- **Cross-Encoder Investigation:**
+  - Investigated why the image does not survive final reranking.
+  - Confirmed the existing Sentence Transformers cross-encoder is text-only.
+  - The Figure 2 image is represented as an empty string because its binary content is not textual and its metadata has no textual image description/caption fallback.
+  - Measured Q6 cross-encoder behavior:
+    - Figure 2 caption: rank 1, score `5.24833202`.
+    - Figure 2 image: rank 14/20, score `-8.64942169`.
+  - The image is excluded by cross-encoder ranking plus final top-k truncation, not by FAISS, relationship expansion, filtering, or missing indexing.
+- **Decisions Made:**
+  - Do not modify the current cross-encoder or artificially make the image inherit its caption.
+  - Treat multimodal-aware reranking as a future enhancement requiring an explicit design.
+- **Conclusion:**
+  - Relationship-aware multimodal retrieval is now functional.
+  - The remaining limitation is that the current text cross-encoder cannot semantically rank raw image elements.
 
+---
 
+## Day 19: Multimodal Retrieval Evaluation & Validation
+
+- **Status:** Planned
+- **Primary Goal:** Validate that the new relationship-aware multimodal retrieval behavior generalizes beyond Q6 before making larger retrieval or reranking architectural changes.
+- **Planned Tasks:**
+  1. **Expand targeted retrieval validation beyond Q6:**
+     - Identify evaluation questions involving text, captions, images, tables, and equations.
+     - Prioritize questions where multimodal relationships are relevant.
+  2. **Test relationship expansion behavior:**
+     - Verify that retrieved captions correctly bring related images into the candidate set.
+     - Verify that unrelated elements are not unnecessarily expanded.
+     - Verify deduplication and one-hop behavior.
+     - Ensure existing text-only retrieval behavior remains stable.
+  3. **Compare retrieval configurations after the Day 18 change:**
+     - Dense.
+     - BM25.
+     - Hybrid RRF.
+     - Hybrid reranked.
+  4. **Use targeted retrieval inspection and existing DeepEval retrieval evaluation where useful:**
+     - Do not run the full benchmark unless targeted results justify it.
+     - Preserve the existing DeepEval evaluation architecture.
+     - Do not introduce Ragas yet.
+  5. **Investigate whether multimodal retrieval quality improves on representative questions without changing the current cross-encoder.**
+  6. **Document the remaining limitation:**
+     - Relationship-expanded images can enter the candidate pool.
+     - The current text cross-encoder cannot semantically rank raw image elements.
+     - A future multimodal reranking strategy may therefore be required.
+- **Success Criterion:**
+  - Establish whether the Day 18 relationship-aware retrieval improvement generalizes across multiple evidence types and produces a measurable retrieval improvement without destabilizing existing retrieval behavior.
+- **Constraints:**
+  - Do not prematurely implement a multimodal cross-encoder or other major reranking architecture during Day 19.
+
+---

@@ -281,6 +281,7 @@ class CaptionExtractor:
                 doc=doc,
                 path=path,
                 tables=tables,
+                images=images,
             )
 
         except (FileNotFoundError, ValueError):
@@ -304,6 +305,7 @@ class CaptionExtractor:
         doc: Any,
         path: Path,
         tables: Optional[List[ExtractedTable]],
+        images: Optional[List[ExtractedImage]] = None,
     ) -> None:
         """Matches each caption to the nearest visual element using bounding boxes."""
         # Build per-page index of table bboxes+ids
@@ -321,7 +323,13 @@ class CaptionExtractor:
 
         # Build per-page index of image-block bboxes from layout
         img_bboxes_by_page: Dict[int, List[Tuple[float, float, float, float]]] = {}
-        img_block_ids_by_page: Dict[int, List[str]] = {}
+        img_ids_by_page: Dict[int, List[str]] = {}
+        supplied_image_ids_by_page: Dict[int, List[str]] = {}
+        if images:
+            for image in images:
+                supplied_image_ids_by_page.setdefault(image.page_number, []).append(
+                    image.image_id
+                )
         for page_idx, page in enumerate(doc, start=1):
             try:
                 page_dict = page.get_text("dict")
@@ -329,20 +337,30 @@ class CaptionExtractor:
                 page_dict = {}
             blocks = page_dict.get("blocks", [])
             img_bboxes: List[Tuple[float, float, float, float]] = []
-            img_block_ids: List[str] = []
             for b_idx, blk in enumerate(blocks):
                 if blk.get("type") == 1:
                     raw_bb = blk.get("bbox")
                     if raw_bb:
                         try:
                             img_bboxes.append(tuple(float(x) for x in raw_bb))
-                            img_block_ids.append(
-                                f"{path.name}#page_{page_idx}_imgblock_{b_idx}"
-                            )
+                            page_image_ids = supplied_image_ids_by_page.get(page_idx, [])
+                            image_index = blk.get("number")
+                            if (
+                                not isinstance(image_index, int)
+                                or image_index < 0
+                            ):
+                                image_index = len(img_bboxes) - 1
+                            if image_index < len(page_image_ids):
+                                image_id = page_image_ids[image_index]
+                            else:
+                                image_id = (
+                                    f"{path.name}#page_{page_idx}_img_{image_index}"
+                                )
+                            img_ids_by_page.setdefault(page_idx, []).append(image_id)
                         except Exception:
                             pass
             img_bboxes_by_page[page_idx] = img_bboxes
-            img_block_ids_by_page[page_idx] = img_block_ids
+            img_ids_by_page.setdefault(page_idx, [])
 
         for cap in result.captions:
             if cap.bbox is None:
@@ -352,7 +370,7 @@ class CaptionExtractor:
 
             if cap.is_figure_caption:
                 bboxes = img_bboxes_by_page.get(pg, [])
-                ids = img_block_ids_by_page.get(pg, [])
+                ids = img_ids_by_page.get(pg, [])
             else:
                 bboxes = tbl_bboxes_by_page.get(pg, [])
                 ids = tbl_ids_by_page.get(pg, [])
