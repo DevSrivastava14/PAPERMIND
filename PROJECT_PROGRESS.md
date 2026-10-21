@@ -1030,17 +1030,38 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ---
 
-## Day 22: Score Normalization, Calibration & Evaluation
+## Day 22: Score Normalization & Calibration
 
-- **Status:** Objectives
-- **Objectives:**
-  - Investigate the limitations of current min-max normalization.
-  - Analyze raw and normalized CE, CLIP, RRF, and final scores across Q1–Q6.
-  - Pay particular attention to single-image and narrow-score-range candidate pools.
-  - Determine whether a more stable deterministic normalization/calibration strategy can be introduced without training a new model.
-  - Do not assume the current `0.80/0.20` weights are optimal.
-  - Preserve the existing retrieval architecture and multimodal reranker design.
-  - Improve evaluation methodology without immediately introducing Ragas or another framework.
-  - Begin planning a small set of dedicated table/equation evaluation questions because the current canonical dataset lacks them.
+- **Status:** Complete
+- **Score Diagnostics:**
+  - Added raw score diagnostics:
+    - `raw_cross_encoder_score`
+    - `raw_clip_score`
+  - Investigated current candidate-pool min-max normalization using local Q1/Q3/Q6 diagnostics.
+  - Confirmed the main issues:
+    - Tiny CE score ranges could be stretched to `[0, 1]`.
+    - A single CLIP candidate could receive an artificial `0.5`.
+    - CE, CLIP, and RRF have materially different score distributions.
+- **Stabilization:**
+  - Stabilized CE/RRF normalization with a near-zero-range guard while preserving normal min-max behavior.
+  - Changed CLIP normalization to a deterministic bounded `[0, 1]` transform independent of candidate-pool composition.
+- **Preserved:**
+  - Existing retrieval architecture.
+  - Dense/BM25/RRF flow.
+  - Relationship expansion.
+  - Multimodal reranking architecture.
+  - `0.80/0.20` scoring weights.
+  - Raw score diagnostics.
+  - Ranking and candidate generation.
+- **Validation:**
+  - Added focused normalization and diagnostic regression tests.
+  - Final focused validation: **11 passed** in `tests/test_multimodal_reranker.py`.
+  - No Groq calls were used for the normalization work.
+  - No DeepEval or full test suite was run.
+- **Decisions:**
+  - No calibration dataset, learned calibration model, or new scoring model was introduced.
+  - Treat normalization as a practical engineering stabilization rather than a separate calibration research project.
+- **Conclusion:**
+  - Day 22 completed the score-normalization stabilization needed for the multimodal reranker. The system now has deterministic behavior for narrow CE ranges and single-image CLIP candidates while preserving the existing retrieval/reranking architecture. Further statistical calibration is intentionally deferred.
 
 ---

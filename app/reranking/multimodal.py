@@ -58,9 +58,14 @@ class MultimodalReranker(BaseReranker):
             return []
         low = min(values)
         high = max(values)
-        if high == low:
+        if high - low < 1e-3:
             return [0.5] * len(values)
         return [(value - low) / (high - low) for value in values]
+
+    @staticmethod
+    def _normalize_clip(values: Sequence[float]) -> List[float]:
+        """Maps cosine relevance to a deterministic bounded non-negative score."""
+        return [min(1.0, max(0.0, value)) for value in values]
 
     def rerank(
         self,
@@ -89,6 +94,7 @@ class MultimodalReranker(BaseReranker):
             if candidate.element_type in self.TEXT_LIKE_TYPES
         ]
         text_scores: Dict[int, float] = {}
+        raw_text_scores_by_index: Dict[int, float] = {}
         if text_indices:
             pairs = [
                 [query.strip(), default_candidate_text_extractor(candidates[index])]
@@ -106,7 +112,10 @@ class MultimodalReranker(BaseReranker):
                 raw_scores, expected_count=len(text_indices)
             )
             normalized = self._normalize(raw_text_scores)
-            for index, score in zip(text_indices, normalized):
+            for index, raw_score, score in zip(
+                text_indices, raw_text_scores, normalized
+            ):
+                raw_text_scores_by_index[index] = raw_score
                 text_scores[index] = score
 
         image_indices = [
@@ -115,6 +124,7 @@ class MultimodalReranker(BaseReranker):
             if candidate.element_type == ElementType.IMAGE
         ]
         clip_scores: Dict[int, float] = {}
+        raw_clip_scores_by_index: Dict[int, float] = {}
         if image_indices:
             query_vector = self.visual_embedder.embed_text_queries([query.strip()])[0]
             image_inputs = []
@@ -136,8 +146,12 @@ class MultimodalReranker(BaseReranker):
             raw_clip = (image_vectors @ query_vector) / (
                 image_norms * query_norm
             )
-            normalized = self._normalize([float(score) for score in raw_clip])
-            for index, score in zip(image_indices, normalized):
+            raw_clip_values = [float(score) for score in raw_clip]
+            normalized = self._normalize_clip(raw_clip_values)
+            for index, raw_score, score in zip(
+                image_indices, raw_clip_values, normalized
+            ):
+                raw_clip_scores_by_index[index] = raw_score
                 clip_scores[index] = score
 
         scored: List[MultimodalSearchResult] = []
@@ -170,6 +184,8 @@ class MultimodalReranker(BaseReranker):
                     cross_encoder_score=text_scores.get(index),
                     clip_score=clip_scores.get(index),
                     final_score=float(final_score),
+                    raw_cross_encoder_score=raw_text_scores_by_index.get(index),
+                    raw_clip_score=raw_clip_scores_by_index.get(index),
                 )
             )
 

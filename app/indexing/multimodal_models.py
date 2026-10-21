@@ -36,6 +36,8 @@ class MultimodalSearchResult:
     cross_encoder_score: Optional[float] = None
     clip_score: Optional[float] = None
     final_score: Optional[float] = None
+    raw_cross_encoder_score: Optional[float] = None
+    raw_clip_score: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.element is None:
