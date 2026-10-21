@@ -249,6 +249,31 @@ def test_evaluator_handles_metric_exception_gracefully():
     assert "Simulated metric execution failure" in m_res.error
 
 
+def test_failed_metric_aggregate_is_not_reported_as_zero():
+    """All-failure aggregates preserve missing scores instead of becoming valid-looking zeroes."""
+    q = _create_sample_question()
+    failing_metric = MockRetrievalMetric(
+        name="contextual_relevancy",
+        should_fail=True,
+    )
+    evaluator = DeepEvalRetrievalEvaluator(metrics=[failing_metric])
+
+    report = evaluator.evaluate_runs(
+        [
+            QuestionRetrievalRun(
+                question=q,
+                results={"dense": []},
+                latencies={"dense": 0.0},
+            )
+        ]
+    )
+    aggregate = report.aggregate_scores["dense"]["contextual_relevancy"]
+    assert aggregate.mean_score is None
+    assert aggregate.valid_score_count == 0
+    assert aggregate.failed_count == 1
+    assert "N/A" in report.format_summary_table()
+
+
 def test_evaluator_configuration_safety_without_credentials():
     """Verify evaluator reports missing credentials safely without unhandled crashes."""
     # When no model or metrics are provided and OPENAI_API_KEY is not in env,
@@ -309,4 +334,3 @@ def test_baseline_json_preserves_full_content():
     assert "sample_paper.pdf#chunk_14" in dense_items
     assert "AI for Security" in dense_items["sample_paper.pdf#chunk_10"]["content"]
     assert "Security for AI" in dense_items["sample_paper.pdf#chunk_14"]["content"]
-

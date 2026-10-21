@@ -201,6 +201,16 @@ class BaseVisualEmbedder(ABC):
         """Embeds raw images (bytes, file paths, or PIL Images) into a 2D float32 array."""
         pass
 
+    def embed_text_queries(
+        self,
+        texts: List[str],
+        batch_size: Optional[int] = None,
+    ) -> np.ndarray:
+        """Embeds text into the same space as images when the model supports it."""
+        raise NotImplementedError(
+            f"Visual embedder '{self.model_name}' does not support text queries"
+        )
+
 
 class SentenceTransformerVisualEmbedder(BaseVisualEmbedder):
     """Local pretrained visual embedder leveraging sentence-transformers (e.g. CLIP)."""
@@ -324,6 +334,47 @@ class SentenceTransformerVisualEmbedder(BaseVisualEmbedder):
 
         vectors = np.vstack(batches)
         self._validate_vectors(vectors, expected_count=len(images))
+        return vectors
+
+    def embed_text_queries(
+        self,
+        texts: List[str],
+        batch_size: Optional[int] = None,
+    ) -> np.ndarray:
+        effective_batch_size = (
+            batch_size if batch_size is not None else self.default_batch_size
+        )
+        if effective_batch_size <= 0:
+            raise ValueError(
+                f"batch_size must be positive, got {effective_batch_size}"
+            )
+        if not texts:
+            return np.empty((0, self.dimension), dtype=np.float32)
+        if any(not isinstance(text, str) or not text.strip() for text in texts):
+            raise ValueError("texts must contain non-empty strings")
+        if "clip" not in self.model_name.lower():
+            raise NotImplementedError(
+                f"Visual model '{self.model_name}' is not verified as a shared-space CLIP model"
+            )
+
+        model = self._get_model()
+        if not callable(getattr(model, "encode", None)):
+            raise NotImplementedError(
+                f"Visual model '{self.model_name}' does not support text queries"
+            )
+
+        raw_output = model.encode(
+            texts,
+            batch_size=effective_batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+        )
+        if hasattr(raw_output, "detach"):
+            raw_output = raw_output.detach().cpu().numpy()
+        vectors = np.asarray(raw_output, dtype=np.float32)
+        if vectors.ndim == 1:
+            vectors = np.expand_dims(vectors, axis=0)
+        self._validate_vectors(vectors, expected_count=len(texts))
         return vectors
 
     def _validate_vectors(self, vectors: np.ndarray, expected_count: int) -> None:

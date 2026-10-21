@@ -9,6 +9,7 @@ from app.reranking.cross_encoder import (
     default_candidate_text_extractor,
     rerank_cross_encoder,
 )
+from app.reranking.multimodal import MultimodalReranker
 
 __all__ = [
     "BaseReranker",
@@ -18,4 +19,5 @@ __all__ = [
     "DEFAULT_BATCH_SIZE",
     "default_candidate_text_extractor",
     "rerank_cross_encoder",
+    "MultimodalReranker",
 ]

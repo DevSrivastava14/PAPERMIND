@@ -975,3 +975,72 @@ Build a multimodal scientific research paper assistant that answers questions ab
   - A multimodal reranker has not yet been implemented.
 
 ---
+
+## Day 20: Reliable Evaluation Baseline
+
+- **Status:** Complete
+- **Evaluation Stabilization:**
+  - Updated DeepEval aggregation so failed metrics cannot appear as valid `0.0` scores.
+  - `mean_score` is `None` when no valid scores exist.
+  - Added `valid_score_count` and `failed_count`.
+  - Summary output displays `N/A (N failed)` for all-failure aggregates.
+  - Added regression coverage for all-failure aggregation.
+- **Commands & Actual Test Results:**
+  - Focused validation: **13 passed**.
+- **Q2/Q6 Evaluation:**
+  - Dense versus hybrid-reranked evaluation remained only partially measurable because serialized contexts exceeded Groq's approximate 8K TPM limit.
+  - Q6 hybrid-reranked contextual relevancy also encountered rate limiting.
+  - Failed metric calls were explicitly preserved as failures and were not treated as retrieval-quality measurements.
+
+---
+
+## Day 21: Multimodal Reranker
+
+- **Status:** Complete
+- **Implementation:**
+  - Implemented an opt-in `MultimodalReranker` while keeping the existing `CrossEncoderReranker` as the default.
+  - Preserved the existing candidate-generation flow:
+    - Dense retrieval → BM25 → relationship expansion → RRF → candidate pool → selected reranker → final top-k.
+  - Text, caption, table, and equation elements continue to use the existing cross-encoder.
+  - Image elements use CLIP text-query/image cosine similarity.
+  - Added explicit visual text-query embedding support for compatible CLIP models.
+  - Configurable initial scoring:
+    - Text-like: `0.80 * CE_norm + 0.20 * RRF_norm`.
+    - Image: `0.80 * CLIP_norm + 0.20 * RRF_norm`.
+  - Preserved retrieval/RRF, cross-encoder, CLIP, and final score components for diagnostics.
+  - Images never inherit caption scores.
+- **Commands & Actual Test Results:**
+  - Focused multimodal tests: **4 passed**.
+  - Compatibility tests: **6 passed, 16 deselected**.
+- **Q6 End-to-End Validation:**
+  - Used the same 20-element candidate pool for both rerankers.
+  - Existing cross-encoder: Figure 2 image remained outside the final top five.
+  - Multimodal reranker: Figure 2 image ranked fifth and entered the final top five.
+- **Q1–Q6 Regression Inspection:**
+  - Q1, Q2, Q4, and Q5 were unchanged.
+  - Q3 had a minor text ranking swap (`chunk_31` → `chunk_11`) while the primary evidence remained first.
+  - Q6 promoted `page_2_img_2` into the final top five.
+  - No obvious regression was observed on Q1–Q5.
+- **Runtime Verification:**
+  - `sentence-transformers/clip-ViT-B-32` successfully loaded and produced text-query/image scoring.
+- **Limitation:**
+  - Current candidate-pool min-max normalization is not calibrated.
+  - With one image candidate, CLIP normalization can become `0.5`.
+  - The `0.80/0.20` weights are experimental and not calibrated.
+
+---
+
+## Day 22: Score Normalization, Calibration & Evaluation
+
+- **Status:** Objectives
+- **Objectives:**
+  - Investigate the limitations of current min-max normalization.
+  - Analyze raw and normalized CE, CLIP, RRF, and final scores across Q1–Q6.
+  - Pay particular attention to single-image and narrow-score-range candidate pools.
+  - Determine whether a more stable deterministic normalization/calibration strategy can be introduced without training a new model.
+  - Do not assume the current `0.80/0.20` weights are optimal.
+  - Preserve the existing retrieval architecture and multimodal reranker design.
+  - Improve evaluation methodology without immediately introducing Ragas or another framework.
+  - Begin planning a small set of dedicated table/equation evaluation questions because the current canonical dataset lacks them.
+
+---

@@ -230,7 +230,9 @@ class DeepEvalMetricAggregate:
 
     metric_name: str
     total_evaluated: int
-    mean_score: float
+    valid_score_count: int
+    failed_count: int
+    mean_score: Optional[float]
     pass_count: int
     pass_rate: float
 
@@ -239,7 +241,9 @@ class DeepEvalMetricAggregate:
         return {
             "metric_name": self.metric_name,
             "total_evaluated": self.total_evaluated,
-            "mean_score": round(self.mean_score, 4),
+            "valid_score_count": self.valid_score_count,
+            "failed_count": self.failed_count,
+            "mean_score": round(self.mean_score, 4) if self.mean_score is not None else None,
             "pass_count": self.pass_count,
             "pass_rate": round(self.pass_rate, 4),
         }
@@ -292,7 +296,10 @@ class DeepEvalBenchmarkReport:
             for m in self.evaluated_metrics:
                 agg = cfg_aggs.get(m)
                 if agg:
-                    val_str = f"{agg.mean_score:.4f} ({agg.pass_rate*100:.1f}%)"
+                    if agg.mean_score is None:
+                        val_str = f"N/A ({agg.failed_count} failed)"
+                    else:
+                        val_str = f"{agg.mean_score:.4f} ({agg.pass_rate*100:.1f}%)"
                 else:
                     val_str = "N/A"
                 row.append(f"{val_str:<{col_width}}")
@@ -622,6 +629,7 @@ class DeepEvalRetrievalEvaluator:
                 scores: List[float] = []
                 pass_count = 0
                 total_evaluated = 0
+                failed_count = 0
 
                 for qr in question_results:
                     cfg_res = qr.configurations.get(cfg)
@@ -633,15 +641,19 @@ class DeepEvalRetrievalEvaluator:
                     total_evaluated += 1
                     if m_res.score is not None:
                         scores.append(m_res.score)
+                    else:
+                        failed_count += 1
                     if m_res.success:
                         pass_count += 1
 
-                mean_score = (sum(scores) / len(scores)) if scores else 0.0
+                mean_score = (sum(scores) / len(scores)) if scores else None
                 pass_rate = (pass_count / total_evaluated) if total_evaluated > 0 else 0.0
 
                 aggregate_scores[cfg][m_name] = DeepEvalMetricAggregate(
                     metric_name=m_name,
                     total_evaluated=total_evaluated,
+                    valid_score_count=len(scores),
+                    failed_count=failed_count,
                     mean_score=mean_score,
                     pass_count=pass_count,
                     pass_rate=pass_rate,

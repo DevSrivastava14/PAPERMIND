@@ -32,6 +32,10 @@ class MultimodalSearchResult:
     source_filename: Optional[str] = None
     page_number: Optional[int] = None
     related_element_ids: Optional[List[str]] = None
+    retrieval_score: Optional[float] = None
+    cross_encoder_score: Optional[float] = None
+    clip_score: Optional[float] = None
+    final_score: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.element is None:
