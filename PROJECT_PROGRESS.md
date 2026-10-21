@@ -1088,33 +1088,58 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - Preserved the existing `baseline_retrieval_results.json`.
 - No Groq, DeepEval, full benchmark, or full test suite was run during Day 23.
 
-## Day 24: Production API / Application Layer
+## Day 24: Production API + LangGraph Orchestration
 
 - **Status:** Next priority
-- Turn the existing PaperMind pipeline into a usable application/API.
-- PDF upload → ingestion → multimodal extraction → indexing.
-- Query → retrieval → reranking → grounded context.
-- Reuse the existing architecture; do not redesign retrieval.
-- Establish clean API boundaries and request/response models.
-- Keep the implementation focused on a working end-to-end application flow.
+- Introduce LangGraph as the orchestration layer for the PaperMind workflow.
+- Define a typed, shared graph state for the PaperMind workflow.
+- Keep LangGraph responsible for orchestration and conditional routing, not retrieval algorithm implementation.
+- Create thin, modular, independently testable graph nodes that call existing PaperMind components.
+- Preserve the existing retrieval architecture:
+  - Dense → BM25 → RRF → relationship expansion → multimodal reranking → grounded context.
+- Connect the application/API layer to the LangGraph workflow.
+- Support the main flow:
+  - PDF input → ingestion → multimodal document processing/indexing → query → retrieval → reranking → grounded context.
+- Add meaningful conditional/error paths for invalid ingestion, indexing failure, retrieval failure, and insufficient evidence.
+- Do not rewrite FAISS, BM25, RRF, relationship expansion, or multimodal reranking as LangGraph implementations.
+- End Day 24 with a working API/application path that executes the retrieval workflow end-to-end.
 
-## Day 25: Grounded Answer Generation + End-to-End Evaluation
+### Architecture intent
 
-- Integrate grounded answer generation using the existing retrieval and context pipeline.
-- Generate answers only from retrieved evidence with usable citations/provenance.
-- Reuse the existing DeepEval infrastructure already implemented in the project.
-- Run a small representative DeepEval evaluation of the actual end-to-end PaperMind application.
-- Do not build a new evaluation framework or large benchmark.
-- Use a small representative question set, including normal text, multimodal/figure, and insufficient-evidence cases where practical.
-- Prioritize meaningful engineering metrics:
-  - answer faithfulness/groundedness
+```text
+API
+→ LangGraph
+→ ingestion/indexing
+→ retrieval
+→ RRF
+→ relationship expansion
+→ multimodal reranking
+→ grounded context
+→ LLM answer generation
+→ citation/grounding validation
+→ response
+```
+
+LangGraph is the orchestration layer; the existing retrieval and multimodal components remain independent services/modules.
+
+## Day 25: Grounded Answer Generation + DeepEval
+
+- Build on the Day 24 LangGraph workflow.
+- Add the LLM answer-generation stage as a LangGraph node.
+- Pass structured grounded context from the existing retrieval pipeline into the LLM.
+- Generate answers grounded only in retrieved evidence.
+- Preserve document, page, element provenance, and citations.
+- Add an explicit insufficient-evidence path so the application does not fabricate unsupported answers.
+- Add necessary answer and citation validation before returning the final response.
+- Reuse the existing DeepEval infrastructure for a small end-to-end application evaluation.
+- Evaluate representative normal text, multimodal/figure, and insufficient-evidence cases.
+- Prioritize meaningful metrics:
+  - faithfulness/groundedness
   - answer relevancy
   - contextual relevancy
   - contextual precision/recall where meaningful
-- Keep Groq usage controlled.
-- Clearly separate valid DeepEval measurements from Groq/API/rate-limit failures.
-- Record meaningful failures and fixes rather than optimizing minor metric differences.
-- Establish that the final application retrieves useful evidence, produces grounded answers, provides citations, and refuses or limits unsupported answers.
+- Keep Groq usage controlled and separate valid measurements from API/rate-limit failures.
+- Do not create a new evaluation framework or large benchmark.
 
 ## Day 26: Reliability & Guardrails
 
