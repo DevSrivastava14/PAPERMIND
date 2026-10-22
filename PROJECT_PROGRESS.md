@@ -1203,45 +1203,130 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Day 26: Reliability & Guardrails
 
+- **Status:** Complete / PASS
+
+### Insufficient-evidence / grounded-refusal fix — Complete
+
+- Root cause: `app/generation/validation.py` used brittle exact-substring matching
+  that did not recognise the actual Day 25 refusal wording:
+  *"The provided evidence excerpts do not contain information regarding …"*
+- Fix: replaced exact matching with bounded regex-based refusal detection that
+  correctly handles reasonable wording variations, including:
+  - "provided evidence excerpts do not contain…"
+  - "provided excerpts do not contain…"
+  - "provided evidence does not contain…"
+  - "the retrieved context does not contain…"
+  - "no mention of…"
+  - "the provided information does not contain…"
+- Preserved: grounded-refusal rule — unsupported answers must never be fabricated.
+- Added focused tests for refusal wording variations, substantive answers, and
+  empty/invalid inputs.
+- Tests completed:
+  - `tests/test_answer_generation_node.py`: **33 passed**
+  - `tests/test_generation.py`: **19 passed**
+  - `tests/test_api.py`: **2 passed**
+
+### Q6 multimodal retrieval — defect fixed and validated
+
+- Root cause: `build_retrieval_pipeline()` in `app/orchestration/langgraph_graph.py`
+  always instantiated `CrossEncoderReranker()`, a text-only model that cannot
+  meaningfully score raw IMAGE elements. The default candidate-text extractor
+  returned an empty string for images, giving them near-zero scores; with
+  `top_k=3` the Figure 2 image was dropped from final results, producing
+  `visual_result_count=0`.
+- Fix: `build_retrieval_pipeline()` now automatically selects `MultimodalReranker`
+  (wrapping `CrossEncoderReranker` + the existing visual embedder) when the
+  document contains image elements, while preserving text-only behaviour for
+  text-only documents and honouring any custom reranker injected via state.
+- With `top_k=5` the Figure 2 image is retained in the ranked results.
+- No retrieval architecture changes; only the reranker selection in the
+  orchestration path was updated.
+- Regression/orchestration tests completed:
+  - `tests/test_langgraph_orchestration.py`: **12 passed**
+  - `tests/test_multimodal_reranker.py`: **11 passed**
+  - `tests/test_multimodal_reranked_retrieval.py`: **22 passed**
+
+### Q6 LLM-as-judge evaluation — intentionally not required / dropped
+
+- Q6 already served as a multimodal retrieval regression and validation case;
+  the fix was confirmed by the tests above.
+- Running a full LLM-as-judge pass over Q6's multimodal answer was not required
+  to validate the defect fix and would have consumed unnecessary Groq evaluation
+  quota.
+- This is an intentional scope decision, not a project deficiency.
+- Multimodal answer quality was not comprehensively evaluated by LLM-as-judge,
+  and the Day 25 results file records this accurately.
+
+### Evidence-strength threshold — not added (intentional)
+
+- An arbitrary retrieval-score threshold for `insufficient_evidence` was not
+  introduced because score calibration across retrieval configurations is not
+  sufficiently justified at this stage.
+- The grounded-refusal detection issue was fixed directly and correctly in
+  `validation.py` without adding unnecessary complexity.
+- The possibility of a threshold remains open if later measurements demonstrate
+  a genuine need.
+
+### Antigravity quota note
+
+- The Day 26 agent usage limit was reached before the broader
+  reliability/guardrail scope (invalid PDFs, malformed queries, retrieval/LLM
+  failure paths) could be completed.
+- That remaining work is intentionally carried forward to Day 27 rather than
+  forcing additional agent usage.
+
+### Evaluation policy (Day 26 onwards)
+
+- Evaluate one question at a time; complete all applicable metrics before moving on.
+- Never intentionally maximise the 30 RPM limit.
+- No parallel evaluation requests.
+- Minimise unnecessary API calls.
+- Evaluation model: `openai/gpt-oss-120b`.
+- Generation model: `qwen/qwen3.8-27b`.
+- On 429: stop requests, wait for the rate-limit window, then retry the same metric.
+- Never convert a rate-limit failure into `null`.
+- `null` only for genuinely non-applicable / technically impossible metrics.
+- Persist after every completed metric/question.
+- Resume without repeating completed evaluation calls.
+- Final evaluation is complete only when every applicable selected metric has a
+  real score.
+- LangSmith is planned for later observability/tracing and is **not** a
+  replacement for the current evaluation framework.
+
+## Day 27: Reliability Carry-forward + Security
+
+### Reliability / Guardrails carry-forward (from Day 26)
+
+Complete the remaining reliability and guardrail work deferred from Day 26:
+
 - Invalid/empty PDFs.
 - Malformed queries.
 - Retrieval/indexing failures.
 - LLM/API failures and timeouts.
 - Unsupported files.
-- Insufficient-evidence behavior.
-- **Day 25 carry-forward — evidence sufficiency:**
-  - Improve `insufficient_evidence` detection so it reflects the quality and
-    strength of retrieved evidence, not merely whether the context is non-empty.
-  - Preserve the grounded-refusal rule: unsupported answers must never be
-    fabricated, including when weak or irrelevant context was retrieved.
-  - Add focused tests for genuinely unsupported questions, weak/irrelevant
-    retrieval, normal answerable questions, and grounded refusal behavior.
-- **Day 25 carry-forward — multimodal retrieval investigation:**
-  - Investigate why the Q6 figure-related case returned
-    `visual_result_count=0` despite producing an answer and citations.
-  - Measure the existing retrieval, reranking, and orchestration path before
-    changing it.
-  - Apply only a targeted fix if the investigation demonstrates a genuine
-    defect; do not rewrite the multimodal retrieval architecture.
+- Weak/irrelevant retrieval behavior and its interaction with the
+  grounded-refusal path.
+- Grounded-refusal regression tests covering the fixed wording patterns.
 
-## Day 27: Security
+Keep this focused. Do not rewrite the retrieval or generation architecture.
+
+### Security
+
+After the reliability carry-forward is complete:
 
 - File validation and size limits.
 - Safe filenames/paths.
 - Untrusted document and prompt-injection considerations.
 - API input validation.
 - Secrets and environment handling.
-- **Day 25 carry-forward — untrusted document content:**
-  - Treat all retrieved PDF content as untrusted input.
-  - Ensure instructions embedded in papers cannot override system or
-    application grounding instructions.
-  - Preserve strict evidence-only generation and citation/provenance links to
-    actual retrieved document elements.
-  - Add focused tests for document-level prompt-injection attempts.
+- Focused document-level prompt-injection tests: ensure instructions embedded
+  in PDF content cannot override system or application grounding instructions.
+
+Do not create a new security/evaluation framework.
 
 ## Day 28: Performance
 
-- Measure actual bottlenecks:
+- Measure actual bottlenecks first:
   - parsing
   - embeddings
   - FAISS
@@ -1249,12 +1334,12 @@ Build a multimodal scientific research paper assistant that answers questions ab
   - RRF
   - reranking
   - LLM generation
-- Optimize only if measurements justify it.
-- Otherwise document the measurements.
+- Optimize only when measurements justify it.
+- Otherwise document the measurements and move on.
 
 ## Day 29: Observability
 
-- Track:
+- Track per-request:
   - `request_id`
   - `document_id`
   - query
@@ -1265,7 +1350,8 @@ Build a multimodal scientific research paper assistant that answers questions ab
   - top results
   - LLM latency
   - failure reason
-- Add tracing or metrics only if they provide meaningful value.
+- LangSmith is **optional**: introduce only if it materially improves
+  observability/tracing over the existing logging approach.
 
 ## Day 30: Docker + Reproducibility
 

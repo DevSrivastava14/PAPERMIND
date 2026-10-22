@@ -227,14 +227,69 @@ class TestInsufficientEvidencePath:
             "The provided excerpts do not contain information on this.",
             "No relevant evidence was retrieved.",
             "The provided documents do not mention quantum entanglement.",
+            # Day 25 exact failure wording
+            (
+                "The provided evidence excerpts do not contain information regarding the launch date "
+                "of the first commercial quantum computer. The sources discuss topics such as AI and "
+                "security [2], AI alignment with nature-inspired mechanisms [1], and various AI "
+                "applications in risk management and information security [3], but none mention quantum computing."
+            ),
+            # Reasonable refusal variations
+            "The provided evidence excerpts do not contain information regarding this topic.",
+            "The retrieved context does not contain information on this question.",
+            "There is no mention of quantum computing in the available sources.",
+            "The provided information does not contain details about the launch date.",
+            "The provided evidence does not contain sufficient details to answer.",
         ],
     )
     def test_is_insufficient_evidence_indicators(self, phrase: str) -> None:
         assert is_insufficient_evidence(phrase) is True
 
-    def test_sufficient_evidence_answer_not_flagged(self) -> None:
-        answer = "The model achieves 28.4 BLEU score on WMT 2014 [1]."
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "The model achieves 28.4 BLEU score on WMT 2014 [1].",
+            "AI for Security means using AI technologies to solve security problems [1].",
+            "Figure 2 shows Weak AI vs Strong AI [1].",
+        ],
+    )
+    def test_sufficient_evidence_answer_not_flagged(self, answer: str) -> None:
         assert is_insufficient_evidence(answer) is False
+
+    @pytest.mark.parametrize(
+        "empty_input",
+        [
+            "",
+            "   ",
+            "\n\t  \n",
+            None,
+        ],
+    )
+    def test_empty_or_invalid_answer_flagged_as_insufficient(
+        self, empty_input: str | None
+    ) -> None:
+        assert is_insufficient_evidence(empty_input) is True
+
+    def test_day25_exact_refusal_detected_in_generator(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        day25_refusal = (
+            "The provided evidence excerpts do not contain information regarding the launch date "
+            "of the first commercial quantum computer. The sources discuss topics such as AI and "
+            "security [2], AI alignment with nature-inspired mechanisms [1], and various AI "
+            "applications in risk management and information security [3], but none mention quantum computing."
+        )
+        llm = MockLLM(answer=day25_refusal)
+        generator = build_answer_generator(llm)
+
+        result = generator.generate_from_context(
+            query="What is the exact launch date of the first commercial quantum computer?",
+            context=multimodal_context,
+        )
+
+        assert result.insufficient_evidence is True
+        assert result.has_context is True
+        assert result.answer == day25_refusal
 
 
 # ---------------------------------------------------------------------------

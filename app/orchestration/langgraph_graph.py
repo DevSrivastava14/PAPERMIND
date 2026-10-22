@@ -15,6 +15,8 @@ from app.generation.base import BaseGenerator
 from app.generation.groq_generator import GroqGenerator
 from app.generation.models import AnswerResult
 from app.multimodal.collection import MultimodalDocument
+from app.multimodal.representation import ElementType
+from app.reranking.base import BaseReranker
 from app.retrieval.models import RetrievedContext
 from app.retrieval.multimodal_models import MultimodalRetrievedContext
 from app.retrieval.multimodal_pipeline import MultimodalRetrievalPipeline
@@ -41,6 +43,7 @@ class GraphState(TypedDict, total=False):
     answer: Optional[str]
     insufficient_evidence: Optional[bool]
     generator: Optional[BaseGenerator]
+    reranker: Optional[BaseReranker]
     error: Optional[str]
     status: GraphStatus
     top_k: int
@@ -67,10 +70,32 @@ def build_retrieval_pipeline(state: GraphState) -> GraphState:
         document = state["document"]
         if document is None:
             raise ValueError("document is required before pipeline construction")
-        pipeline = create_evaluation_pipeline(
-            document=document,
-            default_top_k=state.get("top_k", 5),
-        )
+
+        reranker = state.get("reranker")
+        if reranker is None:
+            doc_elements = getattr(document, "elements", None)
+            has_images = isinstance(doc_elements, (list, tuple)) and any(
+                getattr(el, "element_type", None) == ElementType.IMAGE
+                for el in doc_elements
+            )
+            if has_images:
+                from app.multimodal.embedding import get_multimodal_embedder
+                from app.reranking.cross_encoder import CrossEncoderReranker
+                from app.reranking.multimodal import MultimodalReranker
+
+                reranker = MultimodalReranker(
+                    text_reranker=CrossEncoderReranker(),
+                    visual_embedder=get_multimodal_embedder().visual_embedder,
+                )
+
+        pipeline_kwargs = {
+            "document": document,
+            "default_top_k": state.get("top_k", 5),
+        }
+        if reranker is not None:
+            pipeline_kwargs["reranker"] = reranker
+
+        pipeline = create_evaluation_pipeline(**pipeline_kwargs)
     except (KeyError, TypeError, ValueError, RuntimeError, OSError) as exc:
         return {"status": "error", "error": f"Indexing failed: {exc}"}
 

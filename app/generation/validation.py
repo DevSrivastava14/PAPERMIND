@@ -17,28 +17,30 @@ class CitationValidationResult:
     warnings: List[str] = field(default_factory=list)
 
 
+_INSUFFICIENT_PATTERNS = [
+    re.compile(
+        r"\b(?:provided|retrieved|available)\s+"
+        r"(?:evidence\s+|document\w*\s+|excerpt\w*\s+|context\s+|information\s+|source\w*\s+|text\s+|material\w*\s+)*"
+        r"(?:do(?:es)?\s+not\s+(?:contain|mention|provide|have|state|include)|contain(?:s)?\s+no|is\s+insufficient|are\s+insufficient)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bcannot\s+(?:answer|determine)\s+(?:this\s+question\s+|anything\s+)?based\s+on\s+the\s+provided\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:insufficient\s+evidence|no\s+relevant\s+evidence|not\s+enough\s+information|"
+        r"no\s+mention\s+of|no\s+information\s+is\s+provided|does\s+not\s+contain\s+sufficient\s+information)\b",
+        re.IGNORECASE,
+    ),
+]
+
+
 def is_insufficient_evidence(answer: str) -> bool:
     """Check whether the answer text indicates insufficient evidence to answer the query."""
     if not answer or not answer.strip():
         return True
-    lowered = answer.lower()
-    insufficient_indicators = [
-        "cannot answer this question based on the provided",
-        "cannot answer based on the provided",
-        "insufficient evidence",
-        "no relevant evidence",
-        "not enough information",
-        "provided documents do not provide",
-        "provided documents do not mention",
-        "provided documents do not contain",
-        "provided excerpts do not contain",
-        "provided excerpts do not mention",
-        "provided evidence does not contain",
-        "provided evidence is insufficient",
-        "no information is provided in the",
-        "does not contain sufficient information",
-    ]
-    return any(indicator in lowered for indicator in insufficient_indicators)
+    return any(pattern.search(answer) for pattern in _INSUFFICIENT_PATTERNS)
 
 
 def validate_answer_citations(
