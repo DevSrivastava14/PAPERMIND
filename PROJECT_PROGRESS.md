@@ -1090,37 +1090,18 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Day 24: Production API + LangGraph Orchestration
 
-- **Status:** Next priority
-- Introduce LangGraph as the orchestration layer for the PaperMind workflow.
-- Define a typed, shared graph state for the PaperMind workflow.
-- Keep LangGraph responsible for orchestration and conditional routing, not retrieval algorithm implementation.
-- Create thin, modular, independently testable graph nodes that call existing PaperMind components.
-- Preserve the existing retrieval architecture:
-  - Dense → BM25 → RRF → relationship expansion → multimodal reranking → grounded context.
-- Connect the application/API layer to the LangGraph workflow.
-- Support the main flow:
-  - PDF input → ingestion → multimodal document processing/indexing → query → retrieval → reranking → grounded context.
-- Add meaningful conditional/error paths for invalid ingestion, indexing failure, retrieval failure, and insufficient evidence.
-- Do not rewrite FAISS, BM25, RRF, relationship expansion, or multimodal reranking as LangGraph implementations.
-- End Day 24 with a working API/application path that executes the retrieval workflow end-to-end.
-
-### Architecture intent
-
-```text
-API
-→ LangGraph
-→ ingestion/indexing
-→ retrieval
-→ RRF
-→ relationship expansion
-→ multimodal reranking
-→ grounded context
-→ LLM answer generation
-→ citation/grounding validation
-→ response
-```
-
-LangGraph is the orchestration layer; the existing retrieval and multimodal components remain independent services/modules.
+- **Status:** Complete / PASS
+- Added typed LangGraph shared state and thin orchestration nodes.
+- LangGraph now orchestrates:
+  - ingestion → index/pipeline construction → hybrid retrieval → RRF → relationship-aware retrieval → multimodal reranking → grounded context.
+- Preserved the existing retrieval implementation; FAISS, BM25, RRF, relationship expansion, and reranking were not rewritten.
+- Added success/error routing for ingestion, indexing, and retrieval failures.
+- Added a FastAPI application layer with `POST /query`.
+- The API invokes the existing compiled LangGraph and returns grounded context with multimodal citations and provenance.
+- Added focused LangGraph and API tests.
+- LangGraph/API focused validation: **9 passed, 2 existing sentence-transformers deprecation warnings**.
+- Completed a real HTTP smoke test using `data/sample_paper.pdf`: **HTTP 200**, `status="success"`, non-empty grounded context, 2 citations, and page/element provenance.
+- LLM answer generation is deferred to Day 25.
 
 ## Day 25: Grounded Answer Generation + DeepEval
 
