@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+from typing import Any, Union
+
 from app.retrieval.models import RetrievedContext
+from app.retrieval.multimodal_models import MultimodalRetrievedContext
 
 # Instruction header that frames the model's task and grounding requirements.
 _SYSTEM_INSTRUCTION = (
@@ -17,7 +22,10 @@ _EVIDENCE_HEADER = "--- EVIDENCE ---"
 _EVIDENCE_FOOTER = "--- END OF EVIDENCE ---"
 
 
-def build_grounded_prompt(query: str, context: RetrievedContext) -> str:
+def build_grounded_prompt(
+    query: str,
+    context: Union[RetrievedContext, MultimodalRetrievedContext, Any],
+) -> str:
     """Assembles the grounded prompt for a generation call.
 
     The prompt embeds the system instruction, the formatted evidence context
@@ -27,16 +35,18 @@ def build_grounded_prompt(query: str, context: RetrievedContext) -> str:
 
     Args:
         query: The user's question.
-        context: The RetrievedContext produced by the retrieval pipeline.
+        context: The RetrievedContext or MultimodalRetrievedContext produced by
+            the retrieval pipeline.
 
     Returns:
         A fully assembled prompt string ready to pass to a generator.
     """
+    formatted_context = getattr(context, "formatted_context", "")
     prompt_parts = [
         _SYSTEM_INSTRUCTION,
         "",
         _EVIDENCE_HEADER,
-        context.formatted_context,
+        formatted_context,
         _EVIDENCE_FOOTER,
         "",
         f"Question: {query}",

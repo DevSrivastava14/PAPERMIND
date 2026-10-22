@@ -22,10 +22,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from deepeval.metrics import (
+    AnswerRelevancyMetric,
     BaseMetric,
     ContextualPrecisionMetric,
     ContextualRecallMetric,
     ContextualRelevancyMetric,
+    FaithfulnessMetric,
 )
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase
@@ -37,12 +39,16 @@ from app.indexing.multimodal_models import MultimodalSearchResult
 
 
 import re
+import time
+from email.utils import parsedate_to_datetime
 
 DEFAULT_METRIC_NAMES: List[str] = [
     "contextual_relevancy",
     "contextual_precision",
     "contextual_recall",
 ]
+DEFAULT_EVALUATION_MODEL = "openai/gpt-oss-20b"
+DEFAULT_RATE_LIMIT_WAIT_SECONDS = 60.0
 
 
 def normalize_metric_name(name_or_metric: Union[str, BaseMetric, Any]) -> str:
@@ -312,7 +318,7 @@ class DeepEvalBenchmarkReport:
 def resolve_evaluation_model(
     model: Optional[Union[str, DeepEvalBaseLLM]] = None,
 ) -> Optional[Union[str, DeepEvalBaseLLM]]:
-    """Resolves the evaluation model, automatically configuring Groq if GROQ_API_KEY is set."""
+    """Resolve a Groq judge model without consuming the generation model quota."""
     if model is not None:
         return model
 
@@ -327,16 +333,17 @@ def resolve_evaluation_model(
             pass
 
     if groq_api_key:
-        # Configure DeepEval retry backoff to comfortably accommodate Groq's ~15s token replenishment window
-        if "DEEPEVAL_RETRY_INITIAL_SECONDS" not in os.environ:
-            os.environ["DEEPEVAL_RETRY_INITIAL_SECONDS"] = "15.0"
-        if "DEEPEVAL_RETRY_MAX_ATTEMPTS" not in os.environ:
-            os.environ["DEEPEVAL_RETRY_MAX_ATTEMPTS"] = "6"
-        if "DEEPEVAL_RETRY_CAP_SECONDS" not in os.environ:
-            os.environ["DEEPEVAL_RETRY_CAP_SECONDS"] = "30.0"
-
+        # DeepEval's provider retry must not issue rapid duplicate 429 requests.
+        # The answer evaluator applies the single controlled wait/retry below.
+        os.environ["DEEPEVAL_RETRY_MAX_ATTEMPTS"] = "1"
         from deepeval.models.llms.openai_model import OpenAIModel
-        groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        groq_model = os.getenv("GROQ_EVALUATION_MODEL", DEFAULT_EVALUATION_MODEL)
+        generation_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        if groq_model == generation_model:
+            raise ValueError(
+                "GROQ_EVALUATION_MODEL must differ from GROQ_MODEL so judge calls "
+                "do not consume the generation model quota."
+            )
         base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
         return OpenAIModel(
             model=groq_model,
@@ -348,6 +355,220 @@ def resolve_evaluation_model(
 
 
     return None
+
+
+def _exception_chain(error: BaseException) -> List[BaseException]:
+    """Return an exception and its common wrapper/cause chain."""
+    chain: List[BaseException] = []
+    current: Optional[BaseException] = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(current)
+        last_attempt = getattr(current, "last_attempt", None)
+        nested = None
+        if last_attempt is not None and callable(getattr(last_attempt, "exception", None)):
+            nested = last_attempt.exception()
+        current = nested or current.__cause__ or current.__context__
+    return chain
+
+
+def is_groq_rate_limit_error(error: BaseException) -> bool:
+    """Detect Groq/OpenAI HTTP 429 errors, including DeepEval wrappers."""
+    for current in _exception_chain(error):
+        status_code = getattr(current, "status_code", None)
+        response = getattr(current, "response", None)
+        response_status = getattr(response, "status_code", None)
+        message = str(current).lower()
+        if status_code == 429 or response_status == 429:
+            return True
+        if "429" in message or "rate limit" in message or "ratelimit" in message:
+            return True
+    return False
+
+
+def _retry_after_seconds(error: BaseException, default: float) -> float:
+    """Read Retry-After from an HTTP response, falling back to a safe wait."""
+    for current in _exception_chain(error):
+        response = getattr(current, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            headers = getattr(current, "headers", None)
+        if not headers:
+            continue
+        value = headers.get("retry-after") or headers.get("Retry-After")
+        if not value:
+            continue
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(str(value))
+                return max(0.0, retry_at.timestamp() - time.time())
+            except (TypeError, ValueError, OverflowError):
+                continue
+    return default
+
+
+def create_answer_metrics(
+    model: Optional[Union[str, DeepEvalBaseLLM]] = None,
+    threshold: float = 0.5,
+    include_reason: bool = True,
+    include_context_metrics: bool = True,
+) -> List[BaseMetric]:
+    """Create the small DeepEval metric set used for answer evaluation."""
+    resolved_model = resolve_evaluation_model(model)
+    kwargs: Dict[str, Any] = {
+        "threshold": threshold,
+        "include_reason": include_reason,
+        "async_mode": False,
+    }
+    if resolved_model is not None:
+        kwargs["model"] = resolved_model
+
+    metrics: List[BaseMetric] = [
+        FaithfulnessMetric(**kwargs),
+        AnswerRelevancyMetric(**kwargs),
+    ]
+    if include_context_metrics:
+        metrics.extend(
+            [
+                ContextualRelevancyMetric(**kwargs),
+                ContextualPrecisionMetric(**kwargs),
+                ContextualRecallMetric(**kwargs),
+            ]
+        )
+    return metrics
+
+
+def build_answer_test_case(
+    question: EvaluationQuestion,
+    answer: str,
+    retrieved_contexts: Sequence[str],
+) -> LLMTestCase:
+    """Build a DeepEval case from the real PaperMind answer and evidence."""
+    if not isinstance(question, EvaluationQuestion):
+        raise TypeError(
+            f"question must be an EvaluationQuestion instance, got {type(question).__name__}"
+        )
+    return LLMTestCase(
+        input=question.query,
+        actual_output=answer,
+        expected_output=question.reference_answer,
+        retrieval_context=[
+            str(context)
+            for context in retrieved_contexts
+            if context is not None and str(context).strip()
+        ],
+    )
+
+
+@dataclass
+class DeepEvalAnswerResult:
+    """DeepEval results for one generated PaperMind answer."""
+
+    question_id: str
+    query: str
+    answer: str
+    metrics: Dict[str, DeepEvalMetricResult] = field(default_factory=dict)
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "question_id": self.question_id,
+            "query": self.query,
+            "answer": self.answer,
+            "metrics": {name: result.to_dict() for name, result in self.metrics.items()},
+            "error": self.error,
+        }
+
+
+class DeepEvalAnswerEvaluator:
+    """Evaluate generated answers with the existing DeepEval infrastructure."""
+
+    def __init__(
+        self,
+        model: Optional[Union[str, DeepEvalBaseLLM]] = None,
+        metrics: Optional[Sequence[BaseMetric]] = None,
+        threshold: float = 0.5,
+        include_reason: bool = True,
+        include_context_metrics: bool = True,
+        rate_limit_wait_seconds: float = DEFAULT_RATE_LIMIT_WAIT_SECONDS,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if rate_limit_wait_seconds < 0:
+            raise ValueError("rate_limit_wait_seconds must be non-negative")
+        self.model = model
+        self.threshold = threshold
+        self.include_reason = include_reason
+        self.include_context_metrics = include_context_metrics
+        self.rate_limit_wait_seconds = rate_limit_wait_seconds
+        self.sleep_fn = sleep_fn
+        self._metrics = list(metrics) if metrics is not None else None
+        self.rate_limit_events = 0
+        self.rate_limit_waits = 0
+        self.metric_attempts = 0
+
+    def get_metrics(self) -> List[BaseMetric]:
+        if self._metrics is None:
+            self._metrics = create_answer_metrics(
+                model=self.model,
+                threshold=self.threshold,
+                include_reason=self.include_reason,
+                include_context_metrics=self.include_context_metrics,
+            )
+        return self._metrics
+
+    def evaluate(
+        self,
+        question: EvaluationQuestion,
+        answer: str,
+        retrieved_contexts: Sequence[str],
+    ) -> DeepEvalAnswerResult:
+        test_case = build_answer_test_case(question, answer, retrieved_contexts)
+        result = DeepEvalAnswerResult(
+            question_id=question.id,
+            query=question.query,
+            answer=answer,
+        )
+        for metric in self.get_metrics():
+            metric_name = normalize_metric_name(metric)
+            while True:
+                self.metric_attempts += 1
+                try:
+                    metric.measure(test_case)
+                    score = getattr(metric, "score", None)
+                    successful = (
+                        bool(metric.is_successful())
+                        if callable(getattr(metric, "is_successful", None))
+                        else bool(getattr(metric, "success", False))
+                    )
+                    result.metrics[metric_name] = DeepEvalMetricResult(
+                        metric_name=metric_name,
+                        score=score,
+                        threshold=getattr(metric, "threshold", self.threshold),
+                        success=successful,
+                        reason=getattr(metric, "reason", None),
+                        error=getattr(metric, "error", None),
+                    )
+                    break
+                except Exception as exc:
+                    if not is_groq_rate_limit_error(exc):
+                        result.metrics[metric_name] = DeepEvalMetricResult(
+                            metric_name=metric_name,
+                            score=None,
+                            threshold=getattr(metric, "threshold", self.threshold),
+                            success=False,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
+                        break
+                    self.rate_limit_events += 1
+                    wait_seconds = _retry_after_seconds(
+                        exc, self.rate_limit_wait_seconds
+                    )
+                    self.rate_limit_waits += 1
+                    self.sleep_fn(wait_seconds)
+        return result
 
 
 def create_retrieval_metrics(
@@ -475,41 +696,32 @@ class DeepEvalRetrievalEvaluator:
 
         for metric in metrics:
             metric_key = normalize_metric_name(metric)
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    metric.measure(test_case)
-                    score = getattr(metric, "score", None)
-                    reason = getattr(metric, "reason", None)
-                    if callable(getattr(metric, "is_successful", None)):
-                        success = bool(metric.is_successful())
-                    else:
-                        success = bool(getattr(metric, "success", False))
+            try:
+                metric.measure(test_case)
+                score = getattr(metric, "score", None)
+                reason = getattr(metric, "reason", None)
+                if callable(getattr(metric, "is_successful", None)):
+                    success = bool(metric.is_successful())
+                else:
+                    success = bool(getattr(metric, "success", False))
 
-                    results[metric_key] = DeepEvalMetricResult(
-                        metric_name=metric_key,
-                        score=score,
-                        threshold=getattr(metric, "threshold", self.threshold),
-                        success=success,
-                        reason=reason,
-                        error=getattr(metric, "error", None),
-                    )
-                    break
-                except Exception as err:
-                    err_str = str(err)
-                    if "ratelimit" in err_str.lower() and attempt < max_retries - 1:
-                        import time
-                        time.sleep(15)
-                        continue
-                    results[metric_key] = DeepEvalMetricResult(
-                        metric_name=metric_key,
-                        score=None,
-                        threshold=getattr(metric, "threshold", self.threshold),
-                        success=False,
-                        reason=None,
-                        error=err_str,
-                    )
-                    break
+                results[metric_key] = DeepEvalMetricResult(
+                    metric_name=metric_key,
+                    score=score,
+                    threshold=getattr(metric, "threshold", self.threshold),
+                    success=success,
+                    reason=reason,
+                    error=getattr(metric, "error", None),
+                )
+            except Exception as err:
+                results[metric_key] = DeepEvalMetricResult(
+                    metric_name=metric_key,
+                    score=None,
+                    threshold=getattr(metric, "threshold", self.threshold),
+                    success=False,
+                    reason=None,
+                    error=f"{type(err).__name__}: {err}",
+                )
 
             if self.throttle_seconds > 0:
                 import time

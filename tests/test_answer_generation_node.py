@@ -1,0 +1,438 @@
+from __future__ import annotations
+
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api.main import app
+from app.generation import (
+    AnswerGenerator,
+    AnswerResult,
+    BaseGenerator,
+    CitationValidationResult,
+    GroqGenerator,
+    build_answer_generator,
+    is_insufficient_evidence,
+    validate_answer_citations,
+)
+from app.generation.answer_generator import _INSUFFICIENT_EVIDENCE_ANSWER
+from app.multimodal.representation import ElementType
+from app.orchestration.langgraph_graph import (
+    build_papermind_graph,
+    generate_answer,
+)
+from app.retrieval.multimodal_models import (
+    MultimodalCitation,
+    MultimodalRetrievedContext,
+)
+
+
+class MockLLM(BaseGenerator):
+    """Deterministic in-memory LLM generator for testing."""
+
+    def __init__(self, answer: str = "The model achieves 28.4 BLEU [1].") -> None:
+        self._answer = answer
+        self.recorded_prompts: list[str] = []
+
+    @property
+    def model_name(self) -> str:
+        return "mock-groq-qwen"
+
+    def generate(self, prompt: str) -> str:
+        self.recorded_prompts.append(prompt)
+        return self._answer
+
+
+@pytest.fixture
+def multimodal_context() -> MultimodalRetrievedContext:
+    cit1 = MultimodalCitation(
+        citation_label="[1]",
+        element_id="paper.pdf#chunk_0",
+        element_type=ElementType.TEXT,
+        source_filename="paper.pdf",
+        page_number=1,
+        score=0.92,
+    )
+    cit2 = MultimodalCitation(
+        citation_label="[2]",
+        element_id="paper.pdf#page_2_img_1",
+        element_type=ElementType.IMAGE,
+        source_filename="paper.pdf",
+        page_number=2,
+        score=0.88,
+    )
+    formatted = (
+        "[1] [Text] Source: paper.pdf (Page 1)\nThe model achieves 28.4 BLEU.\n\n"
+        "[2] [Image] Source: paper.pdf (Page 2)\nArchitecture diagram of the transformer."
+    )
+    return MultimodalRetrievedContext(
+        formatted_context=formatted,
+        citations=[cit1, cit2],
+        search_results=[],
+    )
+
+
+# ---------------------------------------------------------------------------
+# GroqGenerator tests
+# ---------------------------------------------------------------------------
+
+class TestGroqGenerator:
+    """Verifies Groq configuration resolution and invocation."""
+
+    def test_groq_generator_reads_env_and_config(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "GROQ_API_KEY": "test-key-123",
+                "GROQ_MODEL": "qwen/qwen3.8-27b",
+                "GROQ_BASE_URL": "https://api.groq.com/openai/v1",
+            },
+        ):
+            with patch("app.generation.groq_generator.OpenAI") as mock_openai:
+                gen = GroqGenerator()
+                assert gen.model_name == "qwen/qwen3.8-27b"
+                mock_openai.assert_called_once_with(
+                    api_key="test-key-123",
+                    base_url="https://api.groq.com/openai/v1",
+                )
+
+    def test_groq_generator_raises_when_no_api_key(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("dotenv.find_dotenv", return_value=""):
+                with pytest.raises(ValueError, match="GROQ_API_KEY is required"):
+                    GroqGenerator()
+
+    def test_groq_generator_generate_calls_chat_completion(self) -> None:
+        with patch("app.generation.groq_generator.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_resp = MagicMock()
+            mock_resp.choices = [
+                MagicMock(message=MagicMock(content="   Answer from Groq [1]   "))
+            ]
+            mock_client.chat.completions.create.return_value = mock_resp
+
+            gen = GroqGenerator(api_key="dummy-key", model="qwen/qwen3.8-27b")
+            reply = gen.generate("Prompt here")
+
+            assert reply == "Answer from Groq [1]"
+            mock_client.chat.completions.create.assert_called_once_with(
+                model="qwen/qwen3.8-27b",
+                messages=[{"role": "user", "content": "Prompt here"}],
+                temperature=0.0,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Multimodal Answer Generation & Provenance tests
+# ---------------------------------------------------------------------------
+
+class TestAnswerGeneratorMultimodal:
+    """Verifies that structured MultimodalRetrievedContext is passed into LLM."""
+
+    def test_multimodal_context_preserves_citations_and_provenance(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        llm = MockLLM(answer="The system achieves 28.4 BLEU [1] with architecture [2].")
+        generator = build_answer_generator(llm)
+
+        result = generator.generate_from_context(
+            query="What is the BLEU score?",
+            context=multimodal_context,
+        )
+
+        assert isinstance(result, AnswerResult)
+        assert result.has_context is True
+        assert result.insufficient_evidence is False
+        assert len(result.citations) == 2
+
+        # Check multimodal provenance preservation
+        c1 = result.citations[0]
+        assert c1.citation_label == "[1]"
+        assert c1.element_id == "paper.pdf#chunk_0"
+        assert c1.element_type == ElementType.TEXT
+        assert c1.source_filename == "paper.pdf"
+        assert c1.page_number == 1
+        assert c1.score == 0.92
+
+        c2 = result.citations[1]
+        assert c2.citation_label == "[2]"
+        assert c2.element_id == "paper.pdf#page_2_img_1"
+        assert c2.element_type == ElementType.IMAGE
+        assert c2.source_filename == "paper.pdf"
+        assert c2.page_number == 2
+        assert c2.score == 0.88
+
+        # Verify LLM received formatted context without reconstruction
+        assert len(llm.recorded_prompts) == 1
+        prompt = llm.recorded_prompts[0]
+        assert multimodal_context.formatted_context in prompt
+        assert "Question: What is the BLEU score?" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Insufficient Evidence Path tests
+# ---------------------------------------------------------------------------
+
+class TestInsufficientEvidencePath:
+    """Verifies explicit insufficient-evidence handling."""
+
+    def test_empty_citations_returns_insufficient_evidence_without_llm_call(
+        self,
+    ) -> None:
+        llm = MockLLM()
+        generator = build_answer_generator(llm)
+        empty_ctx = MultimodalRetrievedContext(
+            formatted_context="",
+            citations=[],
+            search_results=[],
+        )
+
+        result = generator.generate_from_context(
+            query="What is the result?",
+            context=empty_ctx,
+        )
+
+        assert result.answer == _INSUFFICIENT_EVIDENCE_ANSWER
+        assert result.has_context is False
+        assert result.insufficient_evidence is True
+        assert result.citations == []
+        assert len(llm.recorded_prompts) == 0
+
+    def test_llm_refusal_is_detected_as_insufficient_evidence(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        refusal_text = (
+            "I cannot answer this question based on the provided documents. "
+            "The provided excerpts do not mention recipes or cooking."
+        )
+        llm = MockLLM(answer=refusal_text)
+        generator = build_answer_generator(llm)
+
+        result = generator.generate_from_context(
+            query="What is the cake recipe?",
+            context=multimodal_context,
+        )
+
+        assert result.insufficient_evidence is True
+        assert result.has_context is True
+        assert result.answer == refusal_text
+
+    @pytest.mark.parametrize(
+        "phrase",
+        [
+            "I cannot answer this question based on the provided documents.",
+            "There is insufficient evidence to determine the exact date.",
+            "The provided excerpts do not contain information on this.",
+            "No relevant evidence was retrieved.",
+            "The provided documents do not mention quantum entanglement.",
+        ],
+    )
+    def test_is_insufficient_evidence_indicators(self, phrase: str) -> None:
+        assert is_insufficient_evidence(phrase) is True
+
+    def test_sufficient_evidence_answer_not_flagged(self) -> None:
+        answer = "The model achieves 28.4 BLEU score on WMT 2014 [1]."
+        assert is_insufficient_evidence(answer) is False
+
+
+# ---------------------------------------------------------------------------
+# Lightweight Citation Validation tests
+# ---------------------------------------------------------------------------
+
+class TestCitationValidation:
+    """Tests lightweight citation and provenance validation."""
+
+    def test_valid_inline_citations_and_provenance(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        answer = "The transformer model achieves strong results [1] as seen in [2]."
+        val = validate_answer_citations(answer, multimodal_context.citations)
+
+        assert val.is_valid is True
+        assert val.cited_labels == ["[1]", "[2]"]
+        assert val.invalid_labels == []
+        assert len(val.errors) == 0
+
+    def test_hallucinated_citation_marker_is_flagged(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        answer = "According to previous work [1] and speculative theorem [99]."
+        val = validate_answer_citations(answer, multimodal_context.citations)
+
+        assert val.is_valid is False
+        assert "[99]" in val.invalid_labels
+        assert any("[99]" in err for err in val.errors)
+
+    def test_missing_provenance_is_detected(self) -> None:
+        broken_cit = Mock()
+        broken_cit.citation_label = "[1]"
+        broken_cit.source_filename = ""  # missing
+        broken_cit.page_number = -1  # invalid
+        broken_cit.element_id = ""  # missing
+        broken_cit.chunk_id = ""  # missing
+
+        val = validate_answer_citations("Answer [1]", [broken_cit])
+        assert val.is_valid is False
+        assert any("source_filename" in err for err in val.errors)
+        assert any("page_number" in err for err in val.errors)
+        assert any("element_id" in err for err in val.errors)
+
+
+# ---------------------------------------------------------------------------
+# LangGraph Integration tests
+# ---------------------------------------------------------------------------
+
+class TestLangGraphAnswerGenerationNode:
+    """Tests LangGraph answer generation node and full flow integration."""
+
+    def test_generate_answer_node_with_custom_generator(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        llm = MockLLM(answer="AI for Security uses AI to defend systems [1].")
+        state = {
+            "query": "Explain AI for Security",
+            "context": multimodal_context,
+            "generator": llm,
+        }
+
+        output = generate_answer(state)
+
+        assert output["status"] == "success"
+        assert output["answer"] == "AI for Security uses AI to defend systems [1]."
+        assert output["insufficient_evidence"] is False
+        assert output["answer_result"] is not None
+
+    def test_graph_flow_runs_end_to_end_with_generator(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        document = Mock()
+        pipeline = Mock()
+        pipeline.hybrid_retrieve_reranked_and_assemble.return_value = multimodal_context
+        llm = MockLLM(answer="Answer from pipeline [1].")
+
+        with (
+            patch(
+                "app.orchestration.langgraph_graph.build_sample_paper_document",
+                return_value=document,
+            ),
+            patch(
+                "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+                return_value=pipeline,
+            ),
+        ):
+            graph = build_papermind_graph()
+            result = graph.invoke(
+                {
+                    "pdf_path": "test.pdf",
+                    "query": "What is the answer?",
+                    "generator": llm,
+                }
+            )
+
+        assert result["status"] == "success"
+        assert result["answer"] == "Answer from pipeline [1]."
+        assert result["answer_result"] is not None
+        assert result["context"] is multimodal_context
+
+    def test_graph_insufficient_evidence_path(self) -> None:
+        document = Mock()
+        pipeline = Mock()
+        empty_ctx = MultimodalRetrievedContext(
+            formatted_context="",
+            citations=[],
+            search_results=[],
+        )
+        pipeline.hybrid_retrieve_reranked_and_assemble.return_value = empty_ctx
+        llm = MockLLM()
+
+        with (
+            patch(
+                "app.orchestration.langgraph_graph.build_sample_paper_document",
+                return_value=document,
+            ),
+            patch(
+                "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+                return_value=pipeline,
+            ),
+        ):
+            graph = build_papermind_graph()
+            result = graph.invoke(
+                {
+                    "pdf_path": "test.pdf",
+                    "query": "What is the answer?",
+                    "generator": llm,
+                }
+            )
+
+        assert result["status"] == "success"
+        assert result["insufficient_evidence"] is True
+        assert result["answer"] == _INSUFFICIENT_EVIDENCE_ANSWER
+        assert len(llm.recorded_prompts) == 0
+
+
+# ---------------------------------------------------------------------------
+# API /query Endpoint tests
+# ---------------------------------------------------------------------------
+
+class TestAPIAnswerGeneration:
+    """Tests /query endpoint returning grounded answer and citations."""
+
+    def test_query_returns_answer_and_citations(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        client = TestClient(app)
+        state_return = {
+            "status": "success",
+            "context": multimodal_context,
+            "answer": "Grounded answer text [1].",
+            "insufficient_evidence": False,
+        }
+        with patch("app.api.main.graph.invoke", return_value=state_return):
+            response = client.post(
+                "/query",
+                json={
+                    "pdf_path": "data/sample_paper.pdf",
+                    "query": "What is the result?",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["answer"] == "Grounded answer text [1]."
+        assert data["insufficient_evidence"] is False
+        assert len(data["citations"]) == 2
+        assert data["citations"][0]["element_id"] == "paper.pdf#chunk_0"
+        assert data["citations"][1]["element_type"] == "image"
+        assert data["grounded_context"] == multimodal_context.formatted_context
+
+    def test_query_returns_insufficient_evidence_response(self) -> None:
+        client = TestClient(app)
+        empty_ctx = MultimodalRetrievedContext(
+            formatted_context="",
+            citations=[],
+            search_results=[],
+        )
+        state_return = {
+            "status": "success",
+            "context": empty_ctx,
+            "answer": _INSUFFICIENT_EVIDENCE_ANSWER,
+            "insufficient_evidence": True,
+        }
+        with patch("app.api.main.graph.invoke", return_value=state_return):
+            response = client.post(
+                "/query",
+                json={
+                    "pdf_path": "data/sample_paper.pdf",
+                    "query": "Random query?",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["answer"] == _INSUFFICIENT_EVIDENCE_ANSWER
+        assert data["insufficient_evidence"] is True
+        assert data["citations"] == []

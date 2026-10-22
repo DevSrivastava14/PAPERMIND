@@ -1,0 +1,142 @@
+{
+  "generation_model": "qwen/qwen3.8-27b",
+  "evaluation_model": "openai/gpt-oss-120b",
+  "cases": [
+    {
+      "id": "Q6",
+      "query": "What does Figure 2 show, and how are Weak AI and Strong AI broken down?",
+      "status": "success",
+      "answer": "Figure 2 shows \"Weak AI vs Strong AI\" [1].\n\nAccording to the text, these concepts are broken down as follows:\n\n*   **Weak AI (Narrow AI):** This type of AI has been trained to perform limited tasks [2]. Examples include tools like Alexa and Siri, which listen to commands and generate outputs, as well as autonomous vehicles [2]. The text notes that Process AI, such as Jira automation, is a form of workflow automation that takes input, follows a rule set, and produces repeatable outcomes, but it cannot be explicitly type-cast under weak AI [2].\n*   **Strong AI:** This is made up of Artificial General Intelligence, where machines or systems could think like humans, possess self-aware consciousness, and have the ability to solve problems, potentially surpassing the ability of the human brain [3]. Strong AI and its branches are currently theoretical concepts that are not practical and do not have real-world use cases [3].",
+      "insufficient_evidence": false,
+      "citation_count": 3,
+      "visual_result_count": 0,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "RetryError: RetryError[<Future at 0x1e5c5469710 state=finished raised RateLimitError>]"
+        },
+        "answer_relevancy": {
+          "metric_name": "answer_relevancy",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "Skipped after a second Groq rate-limit response"
+        },
+        "contextual_relevancy": {
+          "metric_name": "contextual_relevancy",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "Skipped after a second Groq rate-limit response"
+        },
+        "contextual_precision": {
+          "metric_name": "contextual_precision",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "Skipped after a second Groq rate-limit response"
+        },
+        "contextual_recall": {
+          "metric_name": "contextual_recall",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "Skipped after a second Groq rate-limit response"
+        }
+      }
+    },
+    {
+      "id": "INSUFFICIENT",
+      "query": "What is the exact launch date of the first commercial quantum computer?",
+      "status": "success",
+      "answer": "The provided evidence excerpts do not contain information regarding the launch date of the first commercial quantum computer. The sources discuss topics such as AI and security [2], AI alignment with nature-inspired mechanisms [1], and various AI applications in risk management and information security [3], but none mention quantum computing.",
+      "insufficient_evidence": false,
+      "citation_count": 3,
+      "visual_result_count": 0,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "DeepEvalError: Evaluation LLM outputted an invalid JSON. Please use a better evaluation model."
+        },
+        "answer_relevancy": {
+          "metric_name": "answer_relevancy",
+          "score": null,
+          "threshold": 0.5,
+          "success": false,
+          "reason": null,
+          "error": "Skipped after a second Groq rate-limit response"
+        }
+      }
+    },
+    {
+      "id": "Q1",
+      "query": "What is the difference between “AI for Security” and “Security for AI”?",
+      "status": "success",
+      "answer": "Based on the provided evidence, the difference between the two concepts is defined as follows:\n\n*   **“AI for Security”** refers to using AI technologies to solve security problems or integrating AI technology into security products and solutions [1].\n*   **“Security for AI”** (also referred to as “Security in AI”) involves designing and implementing security measures for AI technologies themselves [2]. This is necessary because, like all technologies, AI has limitations, vulnerabilities, and is prone to attacks, making it imperative to secure AI infrastructure, particularly when it is crucial to business or nation-state infrastructure [2].",
+      "insufficient_evidence": false,
+      "citation_count": 3,
+      "visual_result_count": 0,
+      "metrics": {
+        "faithfulness": {
+          "metric_name": "faithfulness",
+          "score": 1.0,
+          "threshold": 0.5,
+          "success": true,
+          "reason": "The score is 1.00 because there are no contradictions to indicate any misalignment between the actual output and the retrieval context. Great job!",
+          "error": null
+        },
+        "answer_relevancy": {
+          "metric_name": "answer_relevancy",
+          "score": 1.0,
+          "threshold": 0.5,
+          "success": true,
+          "reason": "The score is 1.00 because the answer fully addresses the question, providing a clear comparison between \"AI for Security\" and \"Security for AI\" without any irrelevant statements.",
+          "error": null
+        },
+        "contextual_relevancy": {
+          "metric_name": "contextual_relevancy",
+          "score": 0.3529,
+          "threshold": 0.5,
+          "success": false,
+          "reason": "The score is 0.35 because most retrieved statements are unrelated (e.g., \"The statement discusses 'Weak AI' and workflow automation, which has nothing to do with the distinction between 'AI for Security' and 'Security for AI'.\"), while only a few directly address the query, such as \"AI for Security means how can we use AI technologies to solve security problems or use AI technology in security products or solutions\" and \"'Security for AI' means designing, implementing security measures for AI technologies...\". The predominance of irrelevant content lowers the contextual relevancy.",
+          "error": null
+        },
+        "contextual_precision": {
+          "metric_name": "contextual_precision",
+          "score": 1.0,
+          "threshold": 0.5,
+          "success": true,
+          "reason": "The score is 1.00 because all three retrieval‑context nodes are relevant and they appear in the top ranks (1st, 2nd, 3rd), so there are no irrelevant nodes ranked above any relevant ones.",
+          "error": null
+        },
+        "contextual_recall": {
+          "metric_name": "contextual_recall",
+          "score": 1.0,
+          "threshold": 0.5,
+          "success": true,
+          "reason": "The score is 1.00 because sentence 1 is directly supported by node 1’s definition of “AI for Security,” and sentence 2 is directly supported by node 2’s definition of “Security for AI,” leaving no gaps.",
+          "error": null
+        }
+      },
+      "rate_limit_events": 11,
+      "rate_limit_waits": 11,
+      "metric_attempts": 14
+    }
+  ],
+  "api_failures": [],
+  "evaluation_rate_limit_events": 0,
+  "evaluation_rate_limit_waits": 0,
+  "evaluation_metric_attempts": 0
+}

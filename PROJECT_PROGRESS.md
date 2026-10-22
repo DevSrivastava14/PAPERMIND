@@ -889,6 +889,71 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ---
 
+## Day 17: Retrieval Evaluation & Hybrid Retrieval Evidence
+
+- **Status:** Complete.
+- **Evaluation scope:** Completed retrieval evaluation across the saved benchmark
+  using four configurations:
+  1. Dense FAISS
+  2. BM25
+  3. Hybrid RRF
+  4. Hybrid RRF + cross-encoder reranking
+- **Saved artifacts used:** `data/evaluation/baseline_retrieval_results.json`,
+  `data/evaluation/day23_lightweight_baseline.json`, and the saved Q1
+  DeepEval artifact `data/evaluation/q1_smoke_test_results.json`.
+- **DeepEval contextual metrics:**
+  - Q1 has a saved DeepEval result, but contextual relevancy, contextual
+    precision, and contextual recall were all `0.0` for every configuration.
+  - The judge explanations indicate that the evaluated context representation
+    was fragmented even though the raw retrieval artifacts contained the gold
+    evidence.
+  - Q4, Q5, and Q6 have no saved contextual DeepEval metrics.
+  - These results do not establish contextual DeepEval superiority for hybrid
+    retrieval.
+- **Retrieval-ranking evidence for Q1, Q4, Q5, and Q6:**
+
+  | Strategy | Average primary evidence hits | Average reciprocal rank |
+  |---|---:|---:|
+  | Dense | 1.5000 | 0.6875 |
+  | BM25 | 1.2500 | 0.6000 |
+  | Hybrid RRF | 1.5000 | 0.7083 |
+  | Hybrid RRF + reranking | 1.5000 | 0.8750 |
+
+  - Hybrid RRF improved average reciprocal rank over dense retrieval from
+    `0.6875` to `0.7083`: an absolute improvement of `+0.0208` / `+3.03%`,
+    while preserving the same average primary-evidence hit count.
+  - Across all 8 saved benchmark questions, dense average RR was `0.78125`
+    and Hybrid RRF average RR was `0.85417`, an absolute improvement of
+    `+0.07292` / `+9.33%`. Average primary-evidence hit count remained `1.25`.
+- **Important examples:**
+  - Q5: Dense RR `0.25` → Hybrid RRF `0.3333` → reranked `0.5`.
+  - Q1: Hybrid RRF RR `0.5` → reranked `1.0`.
+  - Q4 and Q6 were already strong and therefore showed no RR improvement.
+- **Reranking tradeoff:**
+  - Hybrid RRF → reranking improved average RR for Q1/Q4/Q5/Q6 from
+    `0.7083` to `0.8750` (`+23.53%`).
+  - Average latency increased substantially:
+    - Dense: `11.36 ms`
+    - Hybrid RRF: `11.50 ms`
+    - Hybrid reranked: `1519.42 ms`
+  - Reranking improved ranking quality but did not improve primary-evidence hit
+    count in this benchmark and introduced a significant latency cost.
+- **Engineering rationale:**
+  - Dense retrieval provides semantic matching.
+  - BM25 provides complementary lexical and exact-term matching.
+  - RRF combines ranked lists without requiring dense and BM25 scores to be
+    directly calibrated.
+  - Reranking can improve top-rank quality but has a substantial latency cost.
+- **Conclusion:** Hybrid retrieval was useful primarily because it improved the
+  ordering of relevant evidence while preserving the evidence coverage achieved
+  by dense retrieval. The evaluation does not demonstrate a recall increase,
+  and the saved contextual DeepEval results are insufficient to claim a broad
+  contextual-quality improvement.
+- **Interview evidence:** This evaluation provides quantitative evidence for
+  the hybrid design rather than relying only on theoretical justification.
+
+---
+
 ## Day 18: Multimodal Retrieval / Q6 Investigation
 
 - **Status:** Complete
@@ -1121,6 +1186,20 @@ Build a multimodal scientific research paper assistant that answers questions ab
   - contextual precision/recall where meaningful
 - Keep Groq usage controlled and separate valid measurements from API/rate-limit failures.
 - Do not create a new evaluation framework or large benchmark.
+- **Status:** Complete with limitations.
+- Added `GROQ_EVALUATION_MODEL` (default `openai/gpt-oss-20b`) for DeepEval while
+  preserving the generation model (`GROQ_MODEL=qwen/qwen3.8-27b`).
+- Added a small existing-DeepEval answer evaluator and ran three live LangGraph
+  cases once: Q1 normal text, Q6 figure-related, and an insufficient-evidence query.
+- Q1 produced valid faithfulness `1.0` and answer relevancy `1.0` results.
+  Q1 contextual metrics, all Q6 metrics, and insufficient-case metrics were
+  unavailable because Groq rate limits caused DeepEval failures; one judge
+  response was also invalid JSON. These are recorded as failures, not scores.
+- All three graph calls returned `status="success"`. The figure case returned no
+  visual result through the existing text-reranked path, and the unrelated
+  question returned a grounded refusal but `insufficient_evidence=false`; thus
+  all three intended behaviors did not fully pass.
+- Results: `data/evaluation/day25_deepeval_results.json`.
 
 ## Day 26: Reliability & Guardrails
 
@@ -1130,6 +1209,20 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - LLM/API failures and timeouts.
 - Unsupported files.
 - Insufficient-evidence behavior.
+- **Day 25 carry-forward — evidence sufficiency:**
+  - Improve `insufficient_evidence` detection so it reflects the quality and
+    strength of retrieved evidence, not merely whether the context is non-empty.
+  - Preserve the grounded-refusal rule: unsupported answers must never be
+    fabricated, including when weak or irrelevant context was retrieved.
+  - Add focused tests for genuinely unsupported questions, weak/irrelevant
+    retrieval, normal answerable questions, and grounded refusal behavior.
+- **Day 25 carry-forward — multimodal retrieval investigation:**
+  - Investigate why the Q6 figure-related case returned
+    `visual_result_count=0` despite producing an answer and citations.
+  - Measure the existing retrieval, reranking, and orchestration path before
+    changing it.
+  - Apply only a targeted fix if the investigation demonstrates a genuine
+    defect; do not rewrite the multimodal retrieval architecture.
 
 ## Day 27: Security
 
@@ -1138,6 +1231,13 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - Untrusted document and prompt-injection considerations.
 - API input validation.
 - Secrets and environment handling.
+- **Day 25 carry-forward — untrusted document content:**
+  - Treat all retrieved PDF content as untrusted input.
+  - Ensure instructions embedded in papers cannot override system or
+    application grounding instructions.
+  - Preserve strict evidence-only generation and citation/provenance links to
+    actual retrieved document elements.
+  - Add focused tests for document-level prompt-injection attempts.
 
 ## Day 28: Performance
 

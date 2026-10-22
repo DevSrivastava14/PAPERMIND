@@ -28,19 +28,21 @@ class CitationResponse(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    """Grounded retrieval result returned by the API."""
+    """Grounded retrieval and answer result returned by the API."""
 
     status: str
     grounded_context: str | None = None
     citations: list[CitationResponse] = Field(default_factory=list)
     error: str | None = None
+    answer: str | None = None
+    insufficient_evidence: bool | None = None
 
 
 app = FastAPI(title="PaperMind API")
 graph = build_papermind_graph()
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/query", response_model=QueryResponse, response_model_exclude_unset=True)
 def query_papermind(request: QueryRequest) -> QueryResponse:
     """Run the existing PaperMind graph for a PDF path and query."""
     state: GraphState = graph.invoke(
@@ -58,7 +60,8 @@ def query_papermind(request: QueryRequest) -> QueryResponse:
         )
 
     context = state.get("context")
-    if state.get("status") != "success" or context is None:
+    status = state.get("status")
+    if status != "success" or context is None:
         raise HTTPException(
             status_code=500,
             detail="PaperMind graph did not produce retrieval context",
@@ -75,8 +78,24 @@ def query_papermind(request: QueryRequest) -> QueryResponse:
         )
         for citation in context.citations
     ]
-    return QueryResponse(
-        status="success",
-        grounded_context=context.formatted_context,
-        citations=citations,
-    )
+
+    answer = state.get("answer")
+    if answer is None and state.get("answer_result") is not None:
+        answer = state["answer_result"].answer
+
+    insufficient_evidence = state.get("insufficient_evidence")
+    if insufficient_evidence is None and state.get("answer_result") is not None:
+        insufficient_evidence = state["answer_result"].insufficient_evidence
+
+    kwargs = {
+        "status": status,
+        "grounded_context": context.formatted_context,
+        "citations": citations,
+        "error": None,
+    }
+    if answer is not None:
+        kwargs["answer"] = answer
+    if insufficient_evidence is not None:
+        kwargs["insufficient_evidence"] = insufficient_evidence
+
+    return QueryResponse(**kwargs)

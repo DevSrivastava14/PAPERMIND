@@ -3,9 +3,10 @@
 from app.orchestration.langgraph_graph import (
     GraphState,
     build_papermind_graph,
+    build_retrieval_pipeline,
+    generate_answer,
     ingest_document,
     retrieve_context,
-    build_retrieval_pipeline,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ingest_document",
     "build_retrieval_pipeline",
     "retrieve_context",
+    "generate_answer",
 ]

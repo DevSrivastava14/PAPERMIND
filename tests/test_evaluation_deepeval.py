@@ -12,6 +12,7 @@ from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
 from app.evaluation import (
+    DeepEvalAnswerEvaluator,
     DeepEvalBenchmarkReport,
     DeepEvalConfigurationResult,
     DeepEvalMetricResult,
@@ -26,6 +27,7 @@ from app.evaluation import (
     get_retrieval_evaluation_dataset,
     normalize_metric_name,
 )
+from app.evaluation.deepeval_evaluator import is_groq_rate_limit_error
 from app.indexing.multimodal_models import MultimodalSearchResult
 from app.multimodal.representation import ElementType, MultimodalElement
 
@@ -64,6 +66,49 @@ class MockRetrievalMetric(BaseMetric):
         return self.measure(test_case, *args, **kwargs)
 
 
+class MockAnswerMetric(BaseMetric):
+    """Answer metric with a deterministic sequence of local outcomes."""
+
+    def __init__(self, name: str, outcomes: list[object]) -> None:
+        super().__init__()
+        self._name = name
+        self.outcomes = outcomes
+        self.calls = 0
+        self.score = None
+        self.threshold = 0.5
+
+    @property
+    def __name__(self) -> str:
+        return self._name
+
+    def measure(self, test_case: LLMTestCase, *args, **kwargs) -> float:
+        self.calls += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        self.score = float(outcome)
+        self.success = self.score >= self.threshold
+        return self.score
+
+    async def a_measure(self, test_case: LLMTestCase, *args, **kwargs) -> float:
+        return self.measure(test_case, *args, **kwargs)
+
+
+class Mock429Error(RuntimeError):
+    status_code = 429
+
+    def __init__(self, retry_after: str | None = None) -> None:
+        super().__init__("HTTP 429 rate limit exceeded")
+        self.response = type(
+            "Response",
+            (),
+            {
+                "status_code": 429,
+                "headers": {"Retry-After": retry_after} if retry_after else {},
+            },
+        )()
+
+
 def _create_sample_question() -> EvaluationQuestion:
     return EvaluationQuestion(
         id="Q_TEST",
@@ -71,6 +116,89 @@ def _create_sample_question() -> EvaluationQuestion:
         reference_answer="RAG combines dense retrieval with generative models.",
         gold_evidence=[GoldEvidence(text="RAG architecture text", element_id="text_1")],
     )
+
+
+def test_groq_rate_limit_is_detected():
+    assert is_groq_rate_limit_error(Mock429Error("12")) is True
+
+
+def test_answer_evaluator_waits_before_one_controlled_retry():
+    metric = MockAnswerMetric("faithfulness", [Mock429Error("12"), 0.9])
+    sleeps: list[float] = []
+    evaluator = DeepEvalAnswerEvaluator(
+        metrics=[metric],
+        sleep_fn=sleeps.append,
+        rate_limit_wait_seconds=60,
+    )
+
+    result = evaluator.evaluate(_create_sample_question(), "Grounded answer", ["Evidence"])
+
+    assert metric.calls == 2
+    assert sleeps == [12.0]
+    assert result.metrics["faithfulness"].score == pytest.approx(0.9)
+
+
+def test_answer_evaluator_waits_after_each_429_until_success():
+    metric = MockAnswerMetric(
+        "faithfulness",
+        [Mock429Error(), Mock429Error(), Mock429Error(), 0.8],
+    )
+    sleeps: list[float] = []
+    evaluator = DeepEvalAnswerEvaluator(
+        metrics=[metric],
+        sleep_fn=sleeps.append,
+        rate_limit_wait_seconds=60,
+    )
+
+    result = evaluator.evaluate(_create_sample_question(), "Grounded answer", ["Evidence"])
+
+    assert metric.calls == 4
+    assert sleeps == [60, 60, 60]
+    assert evaluator.rate_limit_events == 3
+    assert evaluator.rate_limit_waits == 3
+    assert result.metrics["faithfulness"].score == pytest.approx(0.8)
+
+
+def test_answer_evaluator_starts_next_metric_only_after_previous_succeeds():
+    events: list[str] = []
+    first = MockAnswerMetric("faithfulness", [Mock429Error("7"), 0.8])
+    second = MockAnswerMetric("answer_relevancy", [0.9])
+
+    original_first_measure = first.measure
+    original_second_measure = second.measure
+
+    def first_measure(*args, **kwargs):
+        events.append("first")
+        return original_first_measure(*args, **kwargs)
+
+    def second_measure(*args, **kwargs):
+        events.append("second")
+        return original_second_measure(*args, **kwargs)
+
+    first.measure = first_measure
+    second.measure = second_measure
+    evaluator = DeepEvalAnswerEvaluator(
+        metrics=[first, second],
+        sleep_fn=lambda seconds: events.append(f"wait:{seconds}"),
+    )
+
+    result = evaluator.evaluate(_create_sample_question(), "Grounded answer", ["Evidence"])
+
+    assert events == ["first", "wait:7.0", "first", "second"]
+    assert list(result.metrics) == ["faithfulness", "answer_relevancy"]
+
+
+def test_answer_evaluator_records_null_for_genuine_non_rate_limit_failure():
+    metric = MockAnswerMetric("faithfulness", [RuntimeError("invalid judge output")])
+    sleeps: list[float] = []
+    evaluator = DeepEvalAnswerEvaluator(metrics=[metric], sleep_fn=sleeps.append)
+
+    result = evaluator.evaluate(_create_sample_question(), "Grounded answer", ["Evidence"])
+
+    assert metric.calls == 1
+    assert sleeps == []
+    assert result.metrics["faithfulness"].score is None
+    assert "invalid judge output" in (result.metrics["faithfulness"].error or "")
 
 
 def test_build_llm_test_case_mapping():
