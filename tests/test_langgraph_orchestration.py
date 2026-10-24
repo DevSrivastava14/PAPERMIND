@@ -75,6 +75,26 @@ def test_ingest_document_uses_pdf_path() -> None:
     build_document.assert_called_once_with(Path("paper.pdf"))
 
 
+def test_zero_page_pdf_ingestion_fails_gracefully(tmp_path: Path) -> None:
+    zero_pdf = tmp_path / "zero_page.pdf"
+    zero_pdf.write_bytes(
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+        b"xref\n0 3\n"
+        b"0000000000 65535 f \n"
+        b"0000000009 00000 n \n"
+        b"0000000058 00000 n \n"
+        b"trailer\n<< /Size 3 /Root 1 0 R >>\n"
+        b"startxref\n115\n%%EOF\n"
+    )
+
+    state = ingest_document({"pdf_path": str(zero_pdf)})
+    assert state["status"] == "error"
+    assert "Ingestion failed: PDF contains no pages" in state["error"]
+
+
+
 def test_indexing_failure_stops_before_retrieval() -> None:
     document = MultimodalDocument(source_filename="paper.pdf")
     with patch(
@@ -118,6 +138,57 @@ def test_retrieval_failure_is_reported() -> None:
 
     assert result["status"] == "error"
     assert result["error"] == "Retrieval failed: retrieval unavailable"
+
+
+def test_indexing_unexpected_exception_is_controlled() -> None:
+    class CustomIndexingError(Exception):
+        pass
+
+    document = MultimodalDocument(source_filename="paper.pdf")
+    with patch(
+        "app.orchestration.langgraph_graph.build_sample_paper_document",
+        return_value=document,
+    ), patch(
+        "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+        side_effect=CustomIndexingError("unexpected indexing crash"),
+    ), patch(
+        "app.orchestration.langgraph_graph.retrieve_context"
+    ) as retrieve:
+        result = build_papermind_graph().invoke(
+            {"pdf_path": "paper.pdf", "query": "query"}
+        )
+
+    assert result["status"] == "error"
+    assert result["error"] == "Indexing failed: unexpected indexing crash"
+    retrieve.assert_not_called()
+
+
+def test_retrieval_unexpected_exception_is_controlled() -> None:
+    class CustomRetrievalError(Exception):
+        pass
+
+    document = MultimodalDocument(source_filename="paper.pdf")
+    pipeline = Mock()
+    pipeline.hybrid_retrieve_reranked_and_assemble.side_effect = CustomRetrievalError(
+        "unexpected retrieval crash"
+    )
+
+    with (
+        patch(
+            "app.orchestration.langgraph_graph.build_sample_paper_document",
+            return_value=document,
+        ),
+        patch(
+            "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+            return_value=pipeline,
+        ),
+    ):
+        result = build_papermind_graph().invoke(
+            {"pdf_path": "paper.pdf", "query": "query"}
+        )
+
+    assert result["status"] == "error"
+    assert result["error"] == "Retrieval failed: unexpected retrieval crash"
 
 
 def test_graph_compiles() -> None:

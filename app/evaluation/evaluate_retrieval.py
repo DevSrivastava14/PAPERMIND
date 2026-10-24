@@ -46,7 +46,7 @@ def build_sample_paper_document(pdf_path: Union[str, Path] = DEFAULT_PDF_PATH) -
     """Parses and assembles the multimodal document from the sample paper PDF."""
     path = Path(pdf_path)
     if not path.is_file():
-        raise FileNotFoundError(f"PDF file not found at: {path.resolve()}")
+        raise FileNotFoundError(f"PDF file not found: {path}")
 
     # 1. Text parsing & sliding-window chunking
     doc = parse_research_paper(path)

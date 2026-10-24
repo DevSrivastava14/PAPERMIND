@@ -98,6 +98,8 @@ def build_retrieval_pipeline(state: GraphState) -> GraphState:
         pipeline = create_evaluation_pipeline(**pipeline_kwargs)
     except (KeyError, TypeError, ValueError, RuntimeError, OSError) as exc:
         return {"status": "error", "error": f"Indexing failed: {exc}"}
+    except Exception as exc:
+        return {"status": "error", "error": f"Indexing failed: {exc}"}
 
     return {
         "pipeline": pipeline,
@@ -120,6 +122,8 @@ def retrieve_context(state: GraphState) -> GraphState:
             document=document,
         )
     except (KeyError, TypeError, ValueError, RuntimeError, OSError) as exc:
+        return {"status": "error", "error": f"Retrieval failed: {exc}"}
+    except Exception as exc:
         return {"status": "error", "error": f"Retrieval failed: {exc}"}
 
     return {

@@ -95,6 +95,7 @@ class TestGroqGenerator:
                 mock_openai.assert_called_once_with(
                     api_key="test-key-123",
                     base_url="https://api.groq.com/openai/v1",
+                    timeout=30.0,
                 )
 
     def test_groq_generator_raises_when_no_api_key(self) -> None:
@@ -391,6 +392,39 @@ class TestLangGraphAnswerGenerationNode:
         assert result["answer_result"] is not None
         assert result["context"] is multimodal_context
 
+    def test_graph_flow_converts_llm_timeout_to_controlled_error(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        document = Mock()
+        pipeline = Mock()
+        pipeline.hybrid_retrieve_reranked_and_assemble.return_value = multimodal_context
+
+        failing_llm = Mock(spec=BaseGenerator)
+        failing_llm.model_name = "mock-groq-qwen"
+        failing_llm.generate.side_effect = TimeoutError("Request timed out after 30.0s")
+
+        with (
+            patch(
+                "app.orchestration.langgraph_graph.build_sample_paper_document",
+                return_value=document,
+            ),
+            patch(
+                "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+                return_value=pipeline,
+            ),
+        ):
+            graph = build_papermind_graph()
+            result = graph.invoke(
+                {
+                    "pdf_path": "test.pdf",
+                    "query": "What is the answer?",
+                    "generator": failing_llm,
+                }
+            )
+
+        assert result["status"] == "error"
+        assert result["error"] == "Answer generation failed: Request timed out after 30.0s"
+
     def test_graph_insufficient_evidence_path(self) -> None:
         document = Mock()
         pipeline = Mock()
@@ -425,6 +459,40 @@ class TestLangGraphAnswerGenerationNode:
         assert result["insufficient_evidence"] is True
         assert result["answer"] == _INSUFFICIENT_EVIDENCE_ANSWER
         assert len(llm.recorded_prompts) == 0
+
+    def test_graph_irrelevant_evidence_triggers_grounded_refusal(
+        self, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        document = Mock()
+        pipeline = Mock()
+        pipeline.hybrid_retrieve_reranked_and_assemble.return_value = multimodal_context
+        refusal = "I cannot answer this question based on the provided documents. The provided excerpts do not contain information regarding this topic."
+        llm = MockLLM(answer=refusal)
+
+        with (
+            patch(
+                "app.orchestration.langgraph_graph.build_sample_paper_document",
+                return_value=document,
+            ),
+            patch(
+                "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+                return_value=pipeline,
+            ),
+        ):
+            graph = build_papermind_graph()
+            result = graph.invoke(
+                {
+                    "pdf_path": "test.pdf",
+                    "query": "What is the launch date of quantum computers?",
+                    "generator": llm,
+                }
+            )
+
+        assert result["status"] == "success"
+        assert result["insufficient_evidence"] is True
+        assert result["answer"] == refusal
+        assert len(llm.recorded_prompts) == 1
+
 
 
 # ---------------------------------------------------------------------------

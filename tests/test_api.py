@@ -62,3 +62,68 @@ def test_query_returns_clear_graph_error() -> None:
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Ingestion failed: missing.pdf"
+
+
+def test_query_rejects_whitespace_query() -> None:
+    response = client.post(
+        "/query",
+        json={"pdf_path": "data/sample_paper.pdf", "query": "   \n\t  "},
+    )
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "query cannot be empty or whitespace-only" in err.get("msg", "")
+        for err in errors
+    )
+
+
+def test_query_rejects_empty_query() -> None:
+    response = client.post(
+        "/query",
+        json={"pdf_path": "data/sample_paper.pdf", "query": ""},
+    )
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("at least 1 character" in err.get("msg", "") for err in errors)
+
+
+def test_query_rejects_unsupported_file_extension() -> None:
+    response = client.post(
+        "/query",
+        json={"pdf_path": "data/paper.docx", "query": "What is AI?"},
+    )
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any("only .pdf files are supported" in err.get("msg", "").lower() for err in errors)
+
+
+def test_query_rejects_path_traversal() -> None:
+    response = client.post(
+        "/query",
+        json={"pdf_path": "../../secret.pdf", "query": "What is AI?"},
+    )
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "Access denied: path escapes allowed document directory" in err.get("msg", "")
+        for err in errors
+    )
+    # Ensure full host filesystem path is not exposed in error payload
+    response_text = str(response.json())
+    assert "MULTIMODAL_RAG_PROJECT" not in response_text
+
+
+def test_query_rejects_unsafe_absolute_path() -> None:
+    response = client.post(
+        "/query",
+        json={"pdf_path": "C:/Windows/System32/drivers/etc/hosts.pdf", "query": "What is AI?"},
+    )
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(
+        "Access denied: path escapes allowed document directory" in err.get("msg", "")
+        for err in errors
+    )
+
+
+

@@ -11,12 +11,15 @@ from app.generation.base import BaseGenerator
 class GroqGenerator(BaseGenerator):
     """Generator implementation powered by Groq's OpenAI-compatible API."""
 
+    DEFAULT_TIMEOUT: float = 30.0
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
         temperature: float = 0.0,
+        timeout: Optional[float] = None,
     ) -> None:
         if not api_key:
             api_key = os.getenv("GROQ_API_KEY")
@@ -40,7 +43,18 @@ class GroqGenerator(BaseGenerator):
             "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
         )
         self._temperature = temperature
-        self._client = OpenAI(api_key=self._api_key, base_url=self._base_url)
+        self._timeout = timeout if timeout is not None else float(
+            os.getenv("GROQ_TIMEOUT", str(self.DEFAULT_TIMEOUT))
+        )
+        self._client = OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            timeout=self._timeout,
+        )
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout
 
     @property
     def model_name(self) -> str:
