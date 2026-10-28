@@ -24,6 +24,8 @@ from app.retrieval.multimodal_assembler import MultimodalContextAssembler
 from app.retrieval.multimodal_models import MultimodalRetrievedContext
 from app.retrieval.rrf import DEFAULT_RRF_K, reciprocal_rank_fusion
 
+DEFAULT_RERANK_CANDIDATE_POOL: int = 10
+
 
 class MultimodalRetrievalPipeline:
     """Orchestrates similarity search across modality-specific FAISS indices and BM25 sparse index.
@@ -378,7 +380,7 @@ class MultimodalRetrievalPipeline:
                 )
             rrf_limit = effective_candidate_k
         else:
-            rrf_limit = max(effective_top_k, 20)
+            rrf_limit = max(effective_top_k, DEFAULT_RERANK_CANDIDATE_POOL)
 
         effective_dense_k = rrf_limit if dense_top_k is None else dense_top_k
         if effective_dense_k <= 0:

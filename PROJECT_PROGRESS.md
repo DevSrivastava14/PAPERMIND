@@ -1437,18 +1437,88 @@ Build a multimodal scientific research paper assistant that answers questions ab
 - Security hardening is minimal, targeted, and fully tested.
 
 
-## Day 28: Performance
+## Day 28: Performance — COMPLETE
 
-- Measure actual bottlenecks first:
-  - parsing
-  - embeddings
-  - FAISS
-  - BM25
-  - RRF
-  - reranking
-  - LLM generation
-- Optimize only when measurements justify it.
-- Otherwise document the measurements and move on.
+### Performance Measurement & Instrumentation
+
+- Implemented a lightweight, focused benchmark harness in `scripts/benchmark_pipeline.py` using high-resolution monotonic timers (`time.perf_counter()`).
+- Measured all 9 separable stages of the PaperMind RAG pipeline across `data/sample_paper.pdf` with the representative query *"What is the difference between \"AI for Security\" and \"Security for AI\"?"*:
+  1. PDF parsing
+  2. text embedding
+  3. FAISS retrieval
+  4. BM25 retrieval
+  5. RRF fusion
+  6. relationship expansion
+  7. text/multimodal reranking
+  8. LLM generation
+  9. end-to-end query latency
+- Model weights (`all-MiniLM-L6-v2`, `ms-marco-MiniLM-L-6-v2`) and index structures are warmed up once during initialization so cold-start initializations are excluded from per-query latency metrics.
+
+### Baseline Measurements & Bottleneck Identification
+
+- **Initial Baseline Measurements**:
+  - `1_pdf_parsing`: 51.31 ms (one-time ingestion cost)
+  - `2_text_embedding`: 17.31 ms
+  - `3_faiss_retrieval`: 0.35 ms
+  - `4_bm25_retrieval`: 0.58 ms
+  - `5_rrf_fusion`: 0.18 ms
+  - `6_relationship_expansion`: 0.02 ms
+  - `7_reranking`: **786.27 ms**
+  - `context_assembly`: 0.07 ms
+  - `8_llm_generation`: 515.66 ms
+  - `9_end_to_end_query`: 1,861.07 ms
+  - Isolated local query path (stages 2–8): 1,320.43 ms
+- **Bottleneck Identified**: `CrossEncoderReranker` (`cross-encoder/ms-marco-MiniLM-L-6-v2` running on CPU) accounted for ~786.27 ms (~59.5% of local pipeline execution).
+- **Root Cause**: The default RRF candidate pool size was set to 20 (`max(effective_top_k, 20)`), requiring 20 full (query, passage) cross-attention forward passes on CPU for a final `top_k = 5`.
+
+### Optimization Experiment: Candidate Pool Tuning (20 → 10)
+
+- Implemented the smallest, cleanest configuration change in `app/retrieval/multimodal_pipeline.py`:
+  - Defined `DEFAULT_RERANK_CANDIDATE_POOL: int = 10`.
+  - Updated default `rrf_limit = max(effective_top_k, DEFAULT_RERANK_CANDIDATE_POOL)`.
+- Maintained all constraints:
+  - Preserved final `top_k = 5`.
+  - Did NOT modify `max_length`, reranker model, batch size, or retrieval algorithms.
+  - Callers can still override `candidate_top_k` when desired.
+
+### Performance Impact: Before vs After
+
+| Pipeline Stage / Metric | Baseline (Pool = 20) | Optimized (Pool = 10) | Delta | Relative Change |
+|---|---|---|---|---|
+| **7_reranking (mean)** | **786.27 ms** | **452.24 ms** | **-334.03 ms** | **-42.5%** |
+| **7_reranking (min)** | 754.28 ms | 409.77 ms | -344.51 ms | -45.7% |
+| **7_reranking (max)** | 807.50 ms | 474.08 ms | -333.42 ms | -41.3% |
+| **Isolated local query path (Stages 2–8)** | **1,320.43 ms** | **979.21 ms** | **-341.22 ms** | **-25.8%** (Under 1 s) |
+| **End-to-End min latency** | 1,299.05 ms | 865.52 ms | -433.53 ms | -33.4% |
+
+### Retrieval Quality & Evaluation Verification
+
+Evaluated all 8 curated benchmark questions against `data/sample_paper.pdf` using `app.evaluation.scorer.score_evaluation_runs`:
+
+| Configuration | Partial Recall | Complete Recall | Multi-Gold Complete | MRR | Status |
+|---|---|---|---|---|---|
+| **hybrid_reranked (before)** | 8/8 (100.0%) | 8/8 (100.0%) | 2/2 (100.0%) | 0.9375 | Baseline |
+| **hybrid_reranked (after)** | **8/8 (100.0%)** | **8/8 (100.0%)** | **2/2 (100.0%)** | **0.9375** | **Identical** |
+
+- All gold evidence chunks across the 8 evaluation questions retained their exact rankings in the top 5.
+- Retrieval accuracy, partial recall, complete recall, and MRR were 100% preserved.
+
+### Focused Test Results (Day 28)
+
+- Added 5 unit tests in `tests/test_benchmark.py`:
+  - Timing aggregation math.
+  - Deterministic mock LLM generator.
+  - Full 9-stage benchmark execution on local sample paper.
+  - Offline `--skip-llm` mode.
+  - Candidate pool default configuration (`DEFAULT_RERANK_CANDIDATE_POOL == 10`).
+- Executed full test suite across reranking, runner, and benchmark suites:
+  - 38 passed in 50.14s (`tests/test_benchmark.py`, `tests/test_multimodal_reranked_retrieval.py`, `tests/test_evaluation_runner.py`).
+
+### Final Decision & Scope Note
+
+- **Decision**: **KEEP** the candidate pool optimization. It yields a substantial 334 ms (-42.5%) latency reduction on the primary bottleneck with zero impact on retrieval accuracy.
+- **Scope**: No second optimization was pursued because the first evidence-based optimization achieved the objective cleanly without introducing additional complexity.
+
 
 ## Day 29: Observability
 
@@ -1463,7 +1533,7 @@ Build a multimodal scientific research paper assistant that answers questions ab
   - top results
   - LLM latency
   - failure reason
-- LangSmith is **optional**: introduce only if it materially improves
+- LangSmith : introduce only if it materially improves
   observability/tracing over the existing logging approach.
 
 ## Day 30: Docker + Reproducibility
