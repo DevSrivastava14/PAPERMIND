@@ -393,3 +393,173 @@ def test_graph_q6_figure_query_retrieves_image_on_canonical_pdf() -> None:
     assert any("img" in r.element_id for r in context.visual_results)
 
 
+
+
+def test_graph_preserves_request_and_document_id_context() -> None:
+    """Verifies that request_id and document_id are preserved throughout graph execution."""
+    document = MultimodalDocument(source_filename="paper.pdf")
+    pipeline = Mock()
+    context = Mock()
+    pipeline.hybrid_retrieve_reranked_and_assemble.return_value = context
+
+    with (
+        patch(
+            "app.orchestration.langgraph_graph.build_sample_paper_document",
+            return_value=document,
+        ),
+        patch(
+            "app.orchestration.langgraph_graph.create_evaluation_pipeline",
+            return_value=pipeline,
+        ),
+    ):
+        result = build_papermind_graph().invoke(
+            {
+                "pdf_path": "paper.pdf",
+                "query": "What is the result?",
+                "top_k": 3,
+                "request_id": "test-req-12345",
+                "document_id": "doc-test-67890",
+            }
+        )
+
+    assert result["status"] == "success"
+    assert result["request_id"] == "test-req-12345"
+    assert result["document_id"] == "doc-test-67890"
+
+
+def test_retrieve_context_emits_structured_completion_log(caplog) -> None:
+    import json
+    import logging
+
+    pipeline = Mock()
+    pipeline.reranker = Mock()
+    type(pipeline.reranker).__name__ = "CrossEncoderReranker"
+
+    mock_result = Mock()
+    mock_result.element_id = "paper.pdf#chunk_0"
+    mock_result.element_type = ElementType.TEXT
+    mock_result.score = 0.9567
+    mock_result.content = "THIS SECRET EVIDENCE SHOULD NOT BE LOGGED"
+
+    context = Mock()
+    context.candidate_count = 10
+    context.search_results = [mock_result]
+    context.formatted_context = "SECRET FULL TEXT"
+    pipeline.hybrid_retrieve_reranked_and_assemble.return_value = context
+
+    state = {
+        "query": "SECRET USER QUERY",
+        "document": Mock(),
+        "pipeline": pipeline,
+        "request_id": "req-obs-101",
+        "document_id": "doc-obs-202",
+        "top_k": 3,
+    }
+
+    with caplog.at_level(logging.INFO, logger="papermind.retrieval"):
+        result = retrieve_context(state)
+
+    assert result["status"] == "success"
+    assert result["candidate_count"] == 10
+    assert result["retrieval_latency_ms"] >= 0.0
+
+    retrieval_logs = [
+        json.loads(r.getMessage())
+        for r in caplog.records
+        if r.name == "papermind.retrieval" and json.loads(r.getMessage()).get("event") == "retrieval_completion"
+    ]
+    assert len(retrieval_logs) == 1
+    log = retrieval_logs[0]
+    assert log["request_id"] == "req-obs-101"
+    assert log["document_id"] == "doc-obs-202"
+    assert log["top_k"] == 3
+    assert log["candidate_count"] == 10
+    assert log["result_count"] == 1
+    assert log["reranker"] == "CrossEncoderReranker"
+    assert log["retrieval_config"]["reranker"] == "CrossEncoderReranker"
+    assert log["retrieval_latency_ms"] >= 0.0
+
+    # Top results safe summary
+    assert len(log["top_results"]) == 1
+    assert log["top_results"][0] == {
+        "rank": 1,
+        "element_id": "paper.pdf#chunk_0",
+        "element_type": "text",
+        "score": 0.9567,
+    }
+
+    # Verify sensitive data is never logged
+    for r in caplog.records:
+        msg = r.getMessage()
+        assert "SECRET USER QUERY" not in msg
+        assert "THIS SECRET EVIDENCE SHOULD NOT BE LOGGED" not in msg
+        assert "SECRET FULL TEXT" not in msg
+
+
+def test_retrieve_context_emits_structured_failure_log(caplog) -> None:
+    import json
+    import logging
+
+    pipeline = Mock()
+    pipeline.reranker = None
+    pipeline.hybrid_retrieve_reranked_and_assemble.side_effect = RuntimeError(
+        "FAISS failed with key gsk_testSecret123 at C:\\Users\\Dev\\index.faiss"
+    )
+
+    state = {
+        "query": "query",
+        "document": Mock(),
+        "pipeline": pipeline,
+        "request_id": "req-fail-001",
+        "document_id": "doc-fail-002",
+        "top_k": 5,
+    }
+
+    with caplog.at_level(logging.WARNING, logger="papermind.retrieval"):
+        result = retrieve_context(state)
+
+    assert result["status"] == "error"
+    assert "Retrieval failed" in result["error"]
+
+    failure_logs = [
+        json.loads(r.getMessage())
+        for r in caplog.records
+        if r.name == "papermind.retrieval" and json.loads(r.getMessage()).get("event") == "retrieval_failure"
+    ]
+    assert len(failure_logs) == 1
+    log = failure_logs[0]
+    assert log["request_id"] == "req-fail-001"
+    assert log["document_id"] == "doc-fail-002"
+    assert log["top_k"] == 5
+    assert "retrieval_latency_ms" in log
+    assert "gsk_testSecret123" not in log["error_message"]
+    assert "[REDACTED_API_KEY]" in log["error_message"]
+    assert "C:\\Users\\Dev" not in log["error_message"]
+    assert "[PATH]" in log["error_message"]
+
+
+
+def test_retrieve_context_reads_request_local_candidate_count_from_context() -> None:
+    """Verifies that retrieve_context reads candidate_count strictly from context without shared pipeline state."""
+    pipeline = Mock()
+    del pipeline.last_candidate_count  # Ensure no reliance on pipeline attribute
+    del pipeline._last_candidate_count
+
+    context = Mock()
+    context.candidate_count = 14
+    context.search_results = []
+    context.citations = []
+    pipeline.hybrid_retrieve_reranked_and_assemble.return_value = context
+
+    state = {
+        "query": "query",
+        "document": Mock(),
+        "pipeline": pipeline,
+        "request_id": "req-1",
+        "document_id": "doc-1",
+        "top_k": 5,
+    }
+
+    result = retrieve_context(state)
+    assert result["status"] == "success"
+    assert result["candidate_count"] == 14

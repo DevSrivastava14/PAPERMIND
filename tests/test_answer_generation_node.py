@@ -559,3 +559,90 @@ class TestAPIAnswerGeneration:
         assert data["answer"] == _INSUFFICIENT_EVIDENCE_ANSWER
         assert data["insufficient_evidence"] is True
         assert data["citations"] == []
+
+
+    def test_generate_answer_emits_structured_completion_log(
+        self, caplog: pytest.LogCaptureFixture, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        import json
+        import logging
+
+        llm = MockLLM(answer="The model achieves 28.4 BLEU [1].")
+        state = {
+            "query": "SECRET_QUESTION_NOT_TO_BE_LOGGED",
+            "context": multimodal_context,
+            "generator": llm,
+            "request_id": "req-gen-001",
+            "document_id": "doc-gen-002",
+        }
+
+        with caplog.at_level(logging.INFO, logger="papermind.generation"):
+            output = generate_answer(state)
+
+        assert output["status"] == "success"
+        assert "llm_latency_ms" in output
+        assert output["llm_latency_ms"] >= 0.0
+
+        records = [
+            json.loads(r.getMessage())
+            for r in caplog.records
+            if r.name == "papermind.generation" and json.loads(r.getMessage()).get("event") == "generation_completion"
+        ]
+        assert len(records) == 1
+        log = records[0]
+        assert log["request_id"] == "req-gen-001"
+        assert log["document_id"] == "doc-gen-002"
+        assert log["model_name"] == "mock-groq-qwen"
+        assert log["insufficient_evidence"] is False
+        assert log["citations_count"] >= 1
+        assert "llm_latency_ms" in log
+        assert log["llm_latency_ms"] >= 0.0
+
+        # Verify prompt and evidence texts are never logged
+        for r in caplog.records:
+            msg = r.getMessage()
+            assert "SECRET_QUESTION_NOT_TO_BE_LOGGED" not in msg
+            assert "Architecture diagram of the transformer" not in msg
+
+    def test_generate_answer_emits_structured_failure_log(
+        self, caplog: pytest.LogCaptureFixture, multimodal_context: MultimodalRetrievedContext
+    ) -> None:
+        import json
+        import logging
+
+        failing_llm = Mock(spec=BaseGenerator)
+        failing_llm.model_name = "mock-groq-qwen"
+        failing_llm.generate.side_effect = TimeoutError(
+            "Groq request timed out using key gsk_secretLlmKey at C:\\Users\\Dev\\file.py"
+        )
+
+        state = {
+            "query": "query",
+            "context": multimodal_context,
+            "generator": failing_llm,
+            "request_id": "req-gen-fail",
+            "document_id": "doc-gen-fail",
+        }
+
+        with caplog.at_level(logging.WARNING, logger="papermind.generation"):
+            output = generate_answer(state)
+
+        assert output["status"] == "error"
+        assert "Answer generation failed" in output["error"]
+
+        records = [
+            json.loads(r.getMessage())
+            for r in caplog.records
+            if r.name == "papermind.generation" and json.loads(r.getMessage()).get("event") == "generation_failure"
+        ]
+        assert len(records) == 1
+        log = records[0]
+        assert log["request_id"] == "req-gen-fail"
+        assert log["document_id"] == "doc-gen-fail"
+        assert log["error_category"] == "timeout_error"
+        assert "llm_latency_ms" in log
+        assert log["llm_latency_ms"] >= 0.0
+        assert "gsk_secretLlmKey" not in log["error_message"]
+        assert "[REDACTED_API_KEY]" in log["error_message"]
+        assert "C:\\Users\\Dev" not in log["error_message"]
+        assert "[PATH]" in log["error_message"]

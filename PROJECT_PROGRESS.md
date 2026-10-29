@@ -1520,21 +1520,80 @@ Evaluated all 8 curated benchmark questions against `data/sample_paper.pdf` usin
 - **Scope**: No second optimization was pursued because the first evidence-based optimization achieved the objective cleanly without introducing additional complexity.
 
 
-## Day 29: Observability
+## Day 29: Observability ✅
 
-- Track per-request:
-  - `request_id`
-  - `document_id`
-  - query
-  - retrieval configuration
-  - candidate count
-  - reranker
-  - latency
-  - top results
-  - LLM latency
-  - failure reason
-- LangSmith : introduce only if it materially improves
-  observability/tracing over the existing logging approach.
+### Implementation
+
+Structured per-request observability added using Python standard-library `logging` and `time.perf_counter()`. No external services, LangSmith, OpenTelemetry, or Docker changes required.
+
+**Modified files:**
+- `app/api/main.py`
+- `app/orchestration/langgraph_graph.py`
+- `app/retrieval/multimodal_models.py`
+- `app/retrieval/multimodal_pipeline.py`
+
+**Loggers introduced:**
+- `papermind.api` — API boundary events
+- `papermind.retrieval` — retrieval node events
+- `papermind.generation` — LLM generation node events
+
+**Log level control:** `PAPERMIND_LOG_LEVEL` env var (falls back to `LOG_LEVEL`, then `INFO`).
+
+---
+
+### API boundary (`app/api/main.py`)
+
+- UUID `request_id` generated at the start of every `POST /query` request.
+- Returned in `X-Request-ID` response header for both successful and handled failed responses.
+- `generate_document_id(path)`: deterministic `doc-<16 hex chars>` derived from SHA-256 of the validated PDF path relative to the project root. Absolute paths are never logged.
+- `_sanitize_message(msg)`: redacts patterns resembling API keys and filesystem paths from error strings before logging.
+- **`request_start` event**: `request_id`, `query_length`, `document_id`.
+- **`request_completion` event**: `request_id`, `document_id`, `query_length`, `top_k`, `retrieval_config` (including reranker identity), `candidate_count`, `result_count`, `top_results` (rank, element_id, type, score — no content), `total_latency_ms`, `llm_latency_ms` (when available).
+- **`request_failure` event**: `request_id`, `document_id`, `query_length`, `failure_category`, `sanitized_reason`, `total_latency_ms`.
+- Queries, prompts, retrieved evidence, secrets, and filesystem paths are never logged.
+
+---
+
+### LangGraph propagation (`app/orchestration/langgraph_graph.py`)
+
+- `GraphState` extended with `request_id: Optional[str]`, `document_id: Optional[str]`, `llm_latency_ms: Optional[float]`, `candidate_count: Optional[int]`, `retrieval_latency_ms: Optional[float]`.
+- `retrieve_context` node emits **`retrieval_completion`** with `request_id`, `document_id`, `top_k`, `retrieval_config`, `candidate_count`, `result_count`, `retrieval_latency_ms`, safe `top_results` summaries; emits **`retrieval_failure`** on error.
+- `generate_answer` node measures `answer_gen.generate_from_context(...)` duration, emits **`generation_completion`** with `request_id`, `document_id`, `llm_latency_ms`; emits **`generation_failure`** with `failure_category` on error.
+
+---
+
+### Request-local candidate count (`app/retrieval/multimodal_models.py`, `app/retrieval/multimodal_pipeline.py`)
+
+- `MultimodalRetrievedContext` extended with `candidate_count: Optional[int] = None`.
+- `hybrid_retrieve_reranked` accepts `return_candidate_count: bool = False`; captures `candidate_count = len(rrf_candidates)` immediately before reranking.
+- `hybrid_retrieve_reranked_and_assemble` calls with `return_candidate_count=True` and sets `context.candidate_count`.
+- Shared mutable `self._last_candidate_count` / `self.last_candidate_count` removed from the pipeline class. Candidate count is now request-local and race-condition-free.
+
+---
+
+### Safety
+
+- No query text, prompts, retrieved evidence, secrets, or filesystem paths are intentionally logged at any layer.
+- `_sanitize_message` provides a defence-in-depth redaction pass on error strings.
+
+### LangSmith
+
+Not integrated. Remains conditional on future value assessment.
+
+---
+
+### Focused test results
+
+*(Focused test commands only; full suite not claimed.)*
+
+| Test command | Result |
+|---|---|
+| `pytest tests/test_api.py` | **14 passed** |
+| `pytest tests/test_langgraph_orchestration.py -k "test_retrieve_context or test_graph_preserves_request"` | **4 passed, 15 deselected** |
+| `pytest tests/test_answer_generation_node.py -k "test_generate_answer_emits_structured"` | **2 passed, 35 deselected** |
+| `pytest tests/test_multimodal_reranked_retrieval.py -k "test_hybrid_retrieve_reranked_and_assemble_sets_request_local_candidate_count"` | **1 passed, 22 deselected** |
+
+---
 
 ## Day 30: Docker + Reproducibility
 
@@ -1554,7 +1613,29 @@ Evaluated all 8 curated benchmark questions against `data/sample_paper.pdf` usin
 - Known limitations.
 - Reproduction instructions.
 
-## Day 32: Final Engineering Polish
+## Day 32: PaperMind UI
+
+Build a polished interactive demo of the existing backend — not a mockup or disconnected prototype. Inspect existing UI components and project stack before selecting a frontend framework; reuse existing components where possible.
+
+**Features:**
+- Paper selection / upload using existing safe PDF validation and path-security rules.
+- Question submission and grounded answer display.
+- Clickable / clearly mapped citations and multimodal elements (figures, tables) with page and provenance details.
+- Retrieval details panel: active configuration, reranker identity, candidate count, result count, safe result summaries, retrieval latency and LLM latency.
+- Evaluation results from existing saved evaluation artifacts (no new LLM evaluation calls at runtime).
+- Loading, error, empty-state, and insufficient-evidence states handled explicitly.
+- Responsive, clean — portfolio demo quality.
+
+**Out of scope for Day 32:**
+- LangSmith traces (only if integration is justified and already configured by then).
+- New backend features or changes to retrieval algorithms.
+
+**Deliverables:**
+- Working frontend connected to the existing FastAPI backend.
+- Focused tests for key UI interactions.
+- Short manual end-to-end verification checklist.
+
+## Day 33: Final Engineering Polish
 
 - Review code organization, naming, and error handling.
 - Review tests, API, Docker, logging, and configuration.
@@ -1562,7 +1643,7 @@ Evaluated all 8 curated benchmark questions against `data/sample_paper.pdf` usin
 - Review dependencies, dead code, and confusing abstractions.
 - Do not add major new features.
 
-## Day 33: Interview / Portfolio Readiness
+## Day 34: Interview / Portfolio Readiness
 
 Prepare explanations for:
 

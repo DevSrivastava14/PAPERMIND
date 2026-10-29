@@ -640,3 +640,20 @@ class TestBackwardCompatibility:
         assert hybrid_reranked_pipeline.retrieve_hybrid_reranked.__func__ is MultimodalRetrievalPipeline.hybrid_retrieve_reranked
         assert hybrid_reranked_pipeline.reranked_hybrid_retrieve_text.__func__ is MultimodalRetrievalPipeline.hybrid_retrieve_reranked
         assert hybrid_reranked_pipeline.reranked_hybrid_retrieve_and_assemble.__func__ is MultimodalRetrievalPipeline.hybrid_retrieve_reranked_and_assemble
+
+
+    def test_hybrid_retrieve_reranked_and_assemble_sets_request_local_candidate_count(
+        self,
+        hybrid_reranked_pipeline: MultimodalRetrievalPipeline,
+    ):
+        context = hybrid_reranked_pipeline.hybrid_retrieve_reranked_and_assemble(
+            query="transformer attention",
+            top_k=2,
+        )
+        assert isinstance(context, MultimodalRetrievedContext)
+        # Verify candidate_count is stored directly on context (request-local)
+        assert context.candidate_count is not None
+        assert context.candidate_count >= 1
+        assert len(context.search_results) == 2
+        # Ensure no shared state attribute on the pipeline
+        assert not hasattr(hybrid_reranked_pipeline, "_last_candidate_count")

@@ -52,11 +52,13 @@ class MultimodalRetrievedContext:
         formatted_context: Grounded multimodal evidence text formatted with citation markers.
         citations: Structured list of citations matching the evidence blocks.
         search_results: Original MultimodalSearchResult objects returned from vector search.
+        candidate_count: Optional number of candidates pooled prior to reranking.
     """
 
     formatted_context: str
     citations: List[MultimodalCitation] = field(default_factory=list)
     search_results: List[MultimodalSearchResult] = field(default_factory=list)
+    candidate_count: Optional[int] = None
 
     def __len__(self) -> int:
         return len(self.citations)

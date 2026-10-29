@@ -327,7 +327,8 @@ class MultimodalRetrievalPipeline:
         rrf_k: int = DEFAULT_RRF_K,
         rrf_top_k: Optional[int] = None,
         reranker: Optional[BaseReranker] = None,
-    ) -> List[MultimodalSearchResult]:
+        return_candidate_count: bool = False,
+    ) -> Union[List[MultimodalSearchResult], Tuple[List[MultimodalSearchResult], int]]:
         """Performs hybrid retrieval (dense FAISS + sparse BM25 + RRF) followed by cross-encoder reranking.
 
         Flow:
@@ -391,7 +392,7 @@ class MultimodalRetrievalPipeline:
             raise ValueError(f"sparse_top_k must be a positive integer, got {effective_sparse_k}")
 
         if not query.strip():
-            return []
+            return ([], 0) if return_candidate_count else []
 
         # 1. Dense retrieval (384-d FAISS)
         dense_results = self.retrieve_text(query=query, top_k=effective_dense_k)
@@ -406,9 +407,10 @@ class MultimodalRetrievalPipeline:
             top_k=rrf_limit,
         )
         rrf_candidates = self._expand_related_results(rrf_candidates)
+        candidate_count = len(rrf_candidates)
 
         if not rrf_candidates:
-            return []
+            return ([], 0) if return_candidate_count else []
 
         # 4. Cross-encoder neural reranking
         reranked_results = active_reranker.rerank(
@@ -417,7 +419,7 @@ class MultimodalRetrievalPipeline:
             top_k=effective_top_k,
         )
 
-        return reranked_results
+        return (reranked_results, candidate_count) if return_candidate_count else reranked_results
 
     def retrieve(
         self,
@@ -539,7 +541,7 @@ class MultimodalRetrievalPipeline:
         Returns:
             MultimodalRetrievedContext with citations, formatted context, and reranked search results.
         """
-        search_results = self.hybrid_retrieve_reranked(
+        search_results, candidate_count = self.hybrid_retrieve_reranked(
             query=query,
             dense_top_k=dense_top_k,
             sparse_top_k=sparse_top_k,
@@ -548,8 +550,11 @@ class MultimodalRetrievalPipeline:
             rrf_k=rrf_k,
             rrf_top_k=rrf_top_k,
             reranker=reranker,
+            return_candidate_count=True,
         )
-        return self.assembler.assemble(search_results=search_results, document=document)
+        context = self.assembler.assemble(search_results=search_results, document=document)
+        context.candidate_count = candidate_count
+        return context
 
     # Convenience aliases
     search_text = retrieve_text
