@@ -205,6 +205,12 @@ def _categorize_error(error_msg: str) -> str:
     return "graph_error"
 
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Lightweight health check endpoint returning API health status."""
+    return {"status": "healthy"}
+
+
 @app.post("/query", response_model=QueryResponse, response_model_exclude_unset=True)
 def query_papermind(
     request: QueryRequest,

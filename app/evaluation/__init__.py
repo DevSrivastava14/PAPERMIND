@@ -1,5 +1,7 @@
 """Evaluation module for multimodal retrieval and generation quality."""
 
+from typing import TYPE_CHECKING
+
 from app.evaluation.evaluate_retrieval import (
     build_sample_paper_document,
     format_content_preview,
@@ -23,24 +25,6 @@ from app.evaluation.runner import (
     RetrievalEvaluationRunner,
     create_evaluation_pipeline,
 )
-from app.evaluation.deepeval_evaluator import (
-    DeepEvalBenchmarkReport,
-    DeepEvalAnswerEvaluator,
-    DeepEvalAnswerResult,
-    DeepEvalConfigurationResult,
-    DeepEvalMetricAggregate,
-    DeepEvalMetricResult,
-    DeepEvalQuestionResult,
-    DeepEvalRetrievalEvaluator,
-    build_llm_test_case,
-    build_answer_test_case,
-    create_answer_metrics,
-    create_retrieval_metrics,
-    extract_retrieved_contexts,
-    normalize_metric_name,
-    resolve_evaluation_model,
-)
-
 from app.evaluation.scorer import (
     ConfigurationAggregateScore,
     ConfigurationScore,
@@ -52,6 +36,57 @@ from app.evaluation.scorer import (
     score_question_run,
     score_retrieval_results,
 )
+
+if TYPE_CHECKING:
+    from app.evaluation.deepeval_evaluator import (
+        DeepEvalBenchmarkReport,
+        DeepEvalAnswerEvaluator,
+        DeepEvalAnswerResult,
+        DeepEvalConfigurationResult,
+        DeepEvalMetricAggregate,
+        DeepEvalMetricResult,
+        DeepEvalQuestionResult,
+        DeepEvalRetrievalEvaluator,
+        build_llm_test_case,
+        build_answer_test_case,
+        create_answer_metrics,
+        create_retrieval_metrics,
+        extract_retrieved_contexts,
+        normalize_metric_name,
+        resolve_evaluation_model,
+    )
+
+_DEEPEVAL_SYMBOLS = {
+    "DeepEvalBenchmarkReport",
+    "DeepEvalAnswerEvaluator",
+    "DeepEvalAnswerResult",
+    "DeepEvalConfigurationResult",
+    "DeepEvalMetricAggregate",
+    "DeepEvalMetricResult",
+    "DeepEvalQuestionResult",
+    "DeepEvalRetrievalEvaluator",
+    "build_llm_test_case",
+    "build_answer_test_case",
+    "create_answer_metrics",
+    "create_retrieval_metrics",
+    "extract_retrieved_contexts",
+    "normalize_metric_name",
+    "resolve_evaluation_model",
+}
+
+
+def __getattr__(name: str):
+    if name in _DEEPEVAL_SYMBOLS:
+        from app.evaluation import deepeval_evaluator
+        val = getattr(deepeval_evaluator, name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return __all__
+
 
 __all__ = [
     "QuestionType",
@@ -90,6 +125,7 @@ __all__ = [
     "create_retrieval_metrics",
     "create_answer_metrics",
     "normalize_metric_name",
+    "resolve_evaluation_model",
     "DeepEvalRetrievalEvaluator",
     "DeepEvalAnswerEvaluator",
 ]

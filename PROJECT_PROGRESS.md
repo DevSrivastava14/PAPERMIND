@@ -1595,14 +1595,47 @@ Not integrated. Remains conditional on future value assessment.
 
 ---
 
-## Day 30: Docker + Reproducibility
+## Day 30: Docker + Reproducibility ✅
 
-- `docker compose up` should start the system.
-- Define the application and required services.
-- Provide environment configuration.
-- Add persistence where appropriate.
-- Add health checks.
-- Provide clear startup instructions.
+### Implementation
+
+Minimal Docker setup for local reproducible deployment. No new services, databases, or infrastructure.
+
+**New files:**
+- `Dockerfile` — `python:3.13-slim` base, installs `requirements.txt`, copies application code, starts via `uvicorn app.api.main:app`.
+- `docker-compose.yml` — Single `papermind` service; maps port 8000; loads `.env`; read-only `./data` bind mount; `hf_cache` named volume for Hugging Face models; Python `urllib.request` health check.
+- `.dockerignore` — Excludes `.venv`, `__pycache__`, `.pytest_cache`, `.git`, `.env`, `.deepeval`.
+
+**Modified files:**
+- `app/api/main.py` — Added `GET /health` returning `{"status": "healthy"}`. No model loading, graph execution, or Groq calls.
+- `app/evaluation/__init__.py` — Replaced eager top-level `from app.evaluation.deepeval_evaluator import ...` with PEP 562 lazy `__getattr__` dispatch. DeepEval is only imported when explicitly accessed; API runtime no longer requires it.
+- `requirements.txt` — Declared missing direct runtime dependencies: `uvicorn`, `openai`, `python-dotenv`.
+- `.env.example` — Added `GROQ_API_KEY=` (no value; users must supply their own key; never commit secrets).
+- `README.md` — Added Docker Setup section: prerequisites, clone, `.env` setup, PDF placement, `docker compose up --build`, health check, PowerShell query example, stop/cache-preservation guidance, persistence table.
+
+---
+
+### Verification (manual end-to-end)
+
+- `docker compose up --build` completed without errors.
+- `GET http://localhost:8000/health` returned `{"status": "healthy"}`.
+- `docker compose ps` showed `papermind` healthy.
+- `POST /query` with `data/sample_paper.pdf` returned a grounded answer with citations.
+- Hugging Face model cache (2,257.64 MB) survived `docker compose down` and container recreation via `hf_cache` named volume.
+- Docker logs showed no startup errors.
+- FAISS indexes are not persisted; they are rebuilt in-memory per request (by design).
+
+---
+
+### Focused test results
+
+*(Focused test commands only; full suite not claimed.)*
+
+| Test command | Result |
+|---|---|
+| `pytest tests/test_api.py` | **17 passed** |
+| `pytest tests/test_evaluation_dataset.py tests/test_evaluation_runner.py tests/test_evaluation_deepeval.py` | **42 passed, 2 warnings** |
+
 
 ## Day 31: Documentation
 

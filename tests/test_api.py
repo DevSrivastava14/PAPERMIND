@@ -339,3 +339,39 @@ def test_query_completion_emits_full_metadata_and_safe_summaries(caplog: pytest.
         msg = r.getMessage()
         assert "SECRET_QUERY_TEXT" not in msg
         assert "SECRET EVIDENCE TEXT" not in msg
+
+
+def test_health_endpoint_returns_healthy_status() -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "healthy"}
+    assert "x-request-id" in response.headers
+    assert len(response.headers["x-request-id"]) > 0
+
+
+def test_health_endpoint_does_not_execute_graph_or_models() -> None:
+    with patch("app.api.main.graph.invoke") as mock_invoke:
+        response = client.get("/health")
+        assert response.status_code == 200
+        mock_invoke.assert_not_called()
+
+
+def test_api_runtime_import_path_does_not_require_deepeval() -> None:
+    """Verifies that importing the API runtime path does not require DeepEval."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "sys.modules['deepeval'] = None\n"
+        "import app.api.main\n"
+        "assert hasattr(app.api.main, 'app')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"API import failed without DeepEval: {result.stderr}"
+
+
