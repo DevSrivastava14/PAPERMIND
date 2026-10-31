@@ -42,15 +42,16 @@ Build a multimodal scientific research paper assistant that answers questions ab
 
 ## Current State
 
-- **Status:** Day 14 Complete
-- **Date:** October 17, 2026
-- **Environment:** Windows, Python 3.13.5, active `.venv`
-- **Version Control:** Git initialized locally; no commits made (files uncommitted/staged as requested)
+- **Status:** Day 31 Complete (Documentation & Knowledge Consolidation)
+- **Date:** October 31, 2026
+- **Environment:** Windows, Python 3.13, active `.venv`, Docker Desktop
+- **Version Control:** Git repository initialized and up to date with `origin/main` (commit `c3980f0`)
 - **Configuration & Dependencies:**
-  - `requirements.txt`: Pinned to `pymupdf==1.28.2`, `pytest==9.1.1`, `sentence-transformers==6.1.0`, `faiss-cpu==1.15.1`, and `pillow==12.3.0`
-  - `.gitignore`: Configured and verified (ignores `.venv/`, pytest/Python caches, `data/*.pdf`, `data/processed/`, `data/uploads/`, `.env*` except `.env.example`, and logs)
-  - `.env.example`: Contains `APP_ENV=development`
-  - `README.md`: Intentionally kept empty until project completion (ComputeGrid workflow)
+  - `requirements.txt`: Pinned runtime dependencies (`pymupdf==1.28.2`, `pytest==9.1.1`, `sentence-transformers==6.1.0`, `faiss-cpu==1.15.1`, `pillow==12.3.0`, `langgraph>=0.2`, `fastapi>=0.115`, `uvicorn`, `openai`, `python-dotenv`)
+  - `.gitignore`: Configured and verified (ignores `.venv/`, caches, `data/*.pdf`, `data/processed/`, `.env`, and logs)
+  - `.env.example`: Configured with template variables (`APP_ENV`, `GROQ_MODEL`, `GROQ_EVALUATION_MODEL`, `GROQ_BASE_URL`, `GROQ_API_KEY=`)
+  - `README.md`: Polished, recruiter-facing technical project overview with architecture, capabilities, benchmarks, Docker setup, and API specifications
+  - Authoritative documentation in `docs/`: `architecture.md`, `ENGINEERING_DECISIONS.md`, `EVALUATION.md`, `LIMITATIONS.md`
 
 ---
 
@@ -1637,57 +1638,146 @@ Minimal Docker setup for local reproducible deployment. No new services, databas
 | `pytest tests/test_evaluation_dataset.py tests/test_evaluation_runner.py tests/test_evaluation_deepeval.py` | **42 passed, 2 warnings** |
 
 
-## Day 31: Documentation
+## Day 31: Documentation & Project Knowledge Consolidation ✅
 
-- Architecture.
-- Engineering decisions and tradeoffs.
-- Evaluation methodology and results.
-- Meaningful failures and fixes.
-- Known limitations.
-- Reproduction instructions.
+- **Status:** Complete
+- **Date:** October 31, 2026
+- **Objective:** Consolidate the entire 30-day PaperMind engineering effort into an authoritative, recruiter-quality documentation suite and technical presentation, ensuring that all architecture specifications, engineering trade-offs, experimental metrics, failure analyses, and system boundaries are rigorously grounded in source code and saved artifacts.
 
-## Day 32: PaperMind UI
+### 1. Completed Documentation Batches
 
-Build a polished interactive demo of the existing backend — not a mockup or disconnected prototype. Inspect existing UI components and project stack before selecting a frontend framework; reuse existing components where possible.
+The documentation consolidation was completed in four distinct, verified batches:
 
-**Features:**
-- Paper selection / upload using existing safe PDF validation and path-security rules.
-- Question submission and grounded answer display.
-- Clickable / clearly mapped citations and multimodal elements (figures, tables) with page and provenance details.
-- Retrieval details panel: active configuration, reranker identity, candidate count, result count, safe result summaries, retrieval latency and LLM latency.
-- Evaluation results from existing saved evaluation artifacts (no new LLM evaluation calls at runtime).
-- Loading, error, empty-state, and insufficient-evidence states handled explicitly.
-- Responsive, clean — portfolio demo quality.
+#### Batch A — System Architecture (`docs/architecture.md`)
+- Authoritative technical architecture reference (685 lines, ~33 KB).
+- Documents the complete end-to-end subsystem layout:
+  - Ingestion & PyMuPDF multimodal layout parsing (element isolation for `TEXT`, `CAPTION`, `IMAGE`, `TABLE`, `EQUATION`).
+  - Indexing architecture: 384-dimensional dense semantic FAISS index (`all-MiniLM-L6-v2`), 512-dimensional visual FAISS index (`clip-ViT-B-32`), and in-memory sparse Okapi BM25 index ($k_1=1.5, b=0.75$, `app/indexing/bm25_index.py`).
+  - Multi-stage retrieval & fusion: dual candidate generation $\rightarrow$ Reciprocal Rank Fusion ($k=60$) $\rightarrow$ deterministic 1-hop caption-to-image relationship expansion $\rightarrow$ candidate pool windowing $\rightarrow$ dual-path reranking (`CrossEncoderReranker` vs. `MultimodalReranker`).
+  - LangGraph StateGraph orchestration (`app/orchestration/langgraph_graph.py`) with typed error routing and refusal branches.
+  - Grounded answer generation via Groq API (`qwen/qwen3.8-27b`) with inline bracketed citations (`[1]`, `[2]`).
+  - FastAPI boundary (`POST /query`, `GET /health`), request-local state, and path-traversal security boundaries.
+  - Storage & lifecycle topology: ephemeral in-memory indexes, persistent `hf_cache` Docker volume, and read-only `./data` mount.
+- Verified exact component values against source code (e.g., BM25 explicit class constants `DEFAULT_K1 = 1.5, DEFAULT_B = 0.75`; CLIP model `sentence-transformers/clip-ViT-B-32`).
 
-**Out of scope for Day 32:**
-- LangSmith traces (only if integration is justified and already configured by then).
-- New backend features or changes to retrieval algorithms.
+#### Batch B — Engineering Decisions & Failure Analysis (`docs/ENGINEERING_DECISIONS.md`)
+- Detailed rationale, trade-offs, and verification evidence for 11 core architectural decisions (D1–D11):
+  - **D1 — Dense vs. Hybrid Retrieval:** Hybrid RRF achieved a +9.33% MRR improvement over dense-only search on the 8-question benchmark.
+  - **D2 — BM25 + Dense + RRF:** Scale-invariant rank fusion eliminated unnormalized score biases without fragile score calibration.
+  - **D3 — Cross-Encoder Reranking:** Passage cross-attention boosted 4-question diagnostic MRR from 0.7083 to 0.8750 (+23.5%).
+  - **D4 — Separate CLIP Visual Retrieval & Multimodal Reranking:** Solved text cross-encoder bias against raw images using a dual-path reranker blending $80\%$ model scores (CE/CLIP) with $20\%$ RRF rank.
+  - **D5 — 1-Hop Relationship Expansion:** Caption-to-image traversal brings related diagrams into the candidate set without recursive graph drift.
+  - **D6 — LangGraph Orchestration:** Typed `GraphState` with explicit error transitions and deterministic refusal paths.
+  - **D7 — Candidate-Pool Optimization:** Reduced default candidate pool from 20 to 10 (`DEFAULT_RERANK_CANDIDATE_POOL = 10`), achieving a 42.5% reranking latency reduction with zero accuracy loss.
+  - **D8 — In-Memory Ephemeral FAISS:** Clean request isolation and 0.35 ms retrieval without vector database infrastructure overhead.
+  - **D9 — Request-Local State:** Replaced shared mutable class attributes (`self._last_candidate_count`) with request-local tuple returns to prevent concurrency hazards.
+  - **D10 — Lazy DeepEval Imports (PEP 562):** Solved Docker startup crashes by deferring evaluation-only dependencies.
+  - **D11 — Structured JSON Logging & Deferred LangSmith:** Zero-dependency standard-library logging (`papermind.api`, `papermind.retrieval`, `papermind.generation`) with `X-Request-ID` correlation.
+- Comprehensive failure analysis post-mortems for 5 real engineering failures (F1–F5):
+  - **F1 — Single-Candidate CLIP Normalization Bug:** Handled degenerate single-image min-max collapse by enforcing an explicit neutral `0.5` bound.
+  - **F2 — FastAPI Exception-Handler Signature Mismatch:** Corrected custom 422 handler signature to conform to FastAPI's protocol.
+  - **F3 — Shared Mutable Candidate-Count Race:** Converted state tracking to request-local context.
+  - **F4 — Eager DeepEval Imports Breaking Container Startup:** Fixed via PEP 562 lazy `__getattr__` module dispatch in `app/evaluation/__init__.py`.
+  - **F5 — Groq Rate-Limit Evaluation Failures:** Handled ~8K TPM quota exhaustion by recording explicit evaluation failures rather than misleading zeros.
 
-**Deliverables:**
-- Working frontend connected to the existing FastAPI backend.
-- Focused tests for key UI interactions.
-- Short manual end-to-end verification checklist.
+#### Batch C — Evaluation Methodology & Experimental Results (`docs/EVALUATION.md`)
+- Rigorous experimental documentation based on saved artifacts (`data/evaluation/`):
+  - 8-question benchmark definitions with hand-verified gold evidence IDs (`retrieval_questions.md`).
+  - Mathematical definitions for Mean Reciprocal Rank (MRR), partial recall, complete recall, and multi-gold recall.
+  - Full retrieval comparison across 4 configurations (Dense, BM25, Hybrid RRF, Hybrid Reranked).
+  - Clearly separated Experiment 1 (8-question baseline), Experiment 2 (4-question diagnostic subset), Experiment 3 (Day 28 candidate pool optimization), and Experiment 4 (Day 23 lightweight checkpoint).
+  - DeepEval LLM-as-judge results: Q1 completed with faithfulness 1.0, answer relevancy 1.0, contextual precision 1.0, contextual recall 1.0, contextual relevancy 0.3529; Q6 and INSUFFICIENT cases rate-limited/interrupted and honestly labeled incomplete.
+  - Addressed the Q1 smoke-test anomaly (`q1_smoke_test_results.json`), explaining why querying an out-of-domain paper produced zeros without indicating a retrieval regression.
 
-## Day 33: Final Engineering Polish
+#### Batch D — Limitations & Recruiter-Facing README (`docs/LIMITATIONS.md` & `README.md`)
+- **System Limitations (`docs/LIMITATIONS.md`):** Complete boundary analysis classifying constraints as intentional scope choices, hardware bottlenecks, or open research problems (single-paper scope, in-memory lifecycle, 1-hop expansion, CLIP resolution ceiling, heuristic 80/20 weights, lack of diagram OCR, ColPali deferred, CPU reranking ceiling, and 8-question benchmark size).
+- **Recruiter-Quality Project Overview (`README.md`):** Substantially overhauled into a polished, technical portfolio presentation featuring:
+  - Strong problem statement and 9 concrete implemented capabilities.
+  - Full-system Mermaid architecture and horizontal retrieval flowcharts.
+  - Prominent verified benchmark and latency tables.
+  - Engineering decisions matrix and post-mortem failure summaries.
+  - Complete Docker Compose reproduction guide and environment configuration reference.
+  - Accurate API schema documentation (`QueryRequest` / `QueryResponse`) with functional PowerShell and cURL examples.
+  - Local development and test suite instructions.
 
-- Review code organization, naming, and error handling.
-- Review tests, API, Docker, logging, and configuration.
-- Add or update `.env.example`.
-- Review dependencies, dead code, and confusing abstractions.
-- Do not add major new features.
+---
 
-## Day 34: Interview / Portfolio Readiness
+### 2. Verified Technical Findings
 
-Prepare explanations for:
+- **Candidate Pool Optimization Tuning:** Confirmed via code and profiling logs that the empirical Day 28 optimization was **20 $\rightarrow$ 10** (`DEFAULT_RERANK_CANDIDATE_POOL: int = 10` in `app/retrieval/multimodal_pipeline.py`). The conceptual "top-50 $\rightarrow$ top-30" phrasing from early roadmap discussions was resolved and documented across all files.
+- **Measured Latency Impacts (Day 28):**
+  - Reranking latency (mean): **786.27 ms $\rightarrow$ 452.24 ms (-42.5%)**
+  - Isolated local query path (stages 2–8): **1,320.43 ms $\rightarrow$ 979.21 ms (-25.8%, sub-second)**
+  - End-to-end minimum latency: **1,299.05 ms $\rightarrow$ 865.52 ms (-33.4%)**
+  - Retrieval quality: **MRR preserved identically at 0.9375** (partial recall 8/8, complete recall 8/8, multi-gold 2/2).
+- **Test Suite Status:** Pytest collections verified **539 total tests** across the test suite (`tests/test_*.py`). Focused test runs verified 100% pass rates across critical components:
+  - API boundary, path traversal, and validation: **17 passed** (`tests/test_api.py`)
+  - Sparse BM25 indexing and tokenization: **38 passed** (`tests/test_bm25_index.py`)
+  - Reciprocal Rank Fusion: **23 passed** (`tests/test_rrf.py`)
+  - Cross-Encoder and Multimodal Rerankers: **51 passed** (`tests/test_reranker.py`, `tests/test_multimodal_reranker.py`)
+  - LangGraph orchestration and refusal routing: **19 passed** (`tests/test_langgraph_orchestration.py`)
+  - Evaluation runner, dataset models, and lazy DeepEval imports: **42 passed, 2 warnings**
+  *(Note: Total collected test count is 539; only the focused suites above were explicitly executed and claimed passing during Days 28–31).*
+- **DeepEval Scope Integrity:** Evaluated via Groq judge (`openai/gpt-oss-120b`). Q1 completed all 5 metrics. Q6 and INSUFFICIENT evaluations encountered Groq free-tier token-per-minute rate limits. These are preserved as incomplete rate-limit failures; no claim is made that all DeepEval metrics passed.
 
-- architecture choices
-- dense + BM25 + RRF
-- relationship expansion
-- multimodal retrieval/reranking
-- why text cross-encoders cannot directly rank raw images
-- reliability and security
-- evaluation
-- scalability to 100,000 papers
-- engineering tradeoffs
+---
 
-The roadmap is outcome-driven. Tools such as Langfuse, Ragas, additional calibration, or other infrastructure will be introduced only if they materially improve the system.
+### 3. Git Status & Version Control History
+
+The Day 31 documentation work was committed in four distinct logical stages and pushed to GitHub:
+
+```
+c3980f0 (HEAD -> main, origin/main) docs: finalize PaperMind project documentation
+6d4bebd docs: document evaluation methodology and results
+481acbc docs: document engineering decisions and failure analysis
+7e35b02 docs: add comprehensive PaperMind architecture documentation
+```
+
+- **Commit Breakdown:**
+  - `7e35b02` — Batch A: Added `docs/architecture.md`.
+  - `481acbc` — Batch B: Added `docs/ENGINEERING_DECISIONS.md`.
+  - `6d4bebd` — Batch C: Added `docs/EVALUATION.md`.
+  - `c3980f0` — Batch D: Added `docs/LIMITATIONS.md` and updated `README.md`.
+- **Working Tree:** Verified clean (`nothing to commit, working tree clean`) on branch `main`, fully synchronized with `origin/main`.
+
+---
+
+### 4. Authoritative Documentation Files
+
+Future agents and collaborators should treat the following documents as authoritative:
+
+1. [`docs/architecture.md`](docs/architecture.md): Subsystem mechanics, component responsibilities, LangGraph topology, and data flows.
+2. [`docs/ENGINEERING_DECISIONS.md`](docs/ENGINEERING_DECISIONS.md): Architectural decisions (D1–D11), trade-offs, and failure post-mortems (F1–F5).
+3. [`docs/EVALUATION.md`](docs/EVALUATION.md): Quantitative retrieval metrics, benchmark tables, DeepEval records, and reproducibility instructions.
+4. [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md): Operational, architectural, and model boundary conditions.
+5. [`README.md`](README.md): Recruiter-facing technical project presentation, Docker instructions, API guide, and quickstart.
+
+---
+
+## Upcoming Roadmap
+
+### Day 32: PaperMind Interactive UI
+Build a polished, portfolio-grade interactive web interface connected to the live FastAPI backend (`POST /query`, `GET /health`):
+- **Core Features:**
+  - PDF paper selection/upload adhering to path-traversal safety and size bounds.
+  - Query submission with loading, error, and grounded-refusal empty states.
+  - Grounded answer display with interactive inline citations (`[1]`, `[2]`).
+  - Multimodal evidence inspection panel showing page number, element type (`TEXT`, `CAPTION`, `IMAGE`), and raw similarity scores.
+  - Retrieval diagnostic drawer displaying active reranker, pre-rerank candidate count, result count, retrieval latency, and LLM latency.
+  - Benchmark viewer displaying pre-computed metrics from saved evaluation artifacts.
+- **Scope Note:** Connects directly to the existing backend without altering retrieval or reranking algorithms.
+
+### Day 33: Final Engineering Polish
+- Review and refine code organization, variable naming, and error handling across all modules.
+- Audit test suites, Docker container startup, logging sanitation, and configuration defaults.
+- Clean up obsolete helper scripts or dead code without removing required functionality.
+- Verify end-to-end reliability across edge cases (e.g., malformed queries, out-of-domain PDFs).
+
+### Day 34: Portfolio & Interview Readiness
+- Prepare technical explanations for systems engineering interviews:
+  - Dense + Sparse (BM25) + RRF hybrid retrieval mechanics.
+  - Why text cross-encoders cannot directly rank raw images and how `MultimodalReranker` mitigates this.
+  - LangGraph orchestration vs. linear chains.
+  - Sub-second CPU latency engineering (candidate pool tuning).
+  - Scalability architecture roadmap for 100,000+ multi-paper institutional repositories.
+- Final portfolio demonstration walkthrough and presentation checklist.
