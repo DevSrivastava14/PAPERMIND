@@ -411,7 +411,7 @@ candidate_count = len(rrf_candidates)                      # recorded before rer
 reranked = reranker.rerank(query, rrf_candidates, top_k=final_top_k)
 ```
 
-`rrf_limit` defaults to `max(top_k, DEFAULT_RERANK_CANDIDATE_POOL)` (at least 10 candidates passed to the reranker). This was optimized on Day 28: capping the candidate pool at 30 reduced mean reranking latency by 42.5% (786 ms → 452 ms) while preserving MRR at 0.9375.
+`rrf_limit` defaults to `max(top_k, DEFAULT_RERANK_CANDIDATE_POOL)` (at least 10 candidates passed to the reranker). This was optimized on Day 28: tuning the default candidate pool from 20 to 10 (`DEFAULT_RERANK_CANDIDATE_POOL = 10`) reduced mean reranking latency by 42.5% (786 ms → 452 ms) while preserving MRR at 0.9375.
 
 `candidate_count` (the number of RRF candidates entering the reranker) is stored in `MultimodalRetrievedContext.candidate_count` and surfaced in the API log.
 
