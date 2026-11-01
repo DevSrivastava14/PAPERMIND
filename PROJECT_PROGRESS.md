@@ -1837,6 +1837,28 @@ Completed capabilities:
 
 **Objective:** Allow users to select a PDF from their own computer and add it to PaperMind through the interface.
 
+**Implementation status:** Complete for upload and metadata management; document-specific ingestion remains Day 34 work.
+
+**Completed work:**
+
+- Added secure multipart `POST /documents` and read-only `GET /documents` endpoints.
+- Added application-managed storage under configurable `PAPER_MIND_UPLOAD_ROOT` (default `data/uploads/`) with server-generated IDs and storage names.
+- Added bounded upload reads, PDF signature checks, existing PyMuPDF validation, size enforcement, atomic finalization, SQLite metadata registration, and failure cleanup.
+- Replaced the Document Library upload placeholder with a PDF picker, honest upload/validation status, and uploaded-document metadata refresh.
+- Added a separate writable Docker upload volume while preserving the existing read-only data mount.
+- Added `python-multipart` as the required FastAPI multipart parsing dependency and documented `PAPER_MIND_UPLOAD_ROOT` in `.env.example`.
+- Uploaded documents are reported as `uploaded` only and are not presented as indexed or query-ready; document-specific ingestion and retrieval isolation remain Day 34 scope.
+
+**Validation:**
+
+- `.\.venv\Scripts\python.exe -m pytest tests\test_documents.py -q`: **6 passed**
+- `.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q`: **29 passed**
+- `node --check app\static\js\app.js`: passed
+- Python compilation checks for changed modules: passed
+- `git diff --check`: passed
+
+No Groq calls, expensive inference, retrieval changes, commits, or pushes were performed.
+
 **Planned work:**
 
 - Add a local PDF file picker to the Document Library.
@@ -2000,4 +2022,3 @@ Completed capabilities:
 **Commit checkpoint:** `docs: finalize PaperMind portfolio and interview documentation`
 
 ---
-

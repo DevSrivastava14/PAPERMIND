@@ -146,18 +146,20 @@
             </div>
           </div>
 
-          <!-- Future Document Upload Zone (Polished placeholder) -->
+          <!-- Managed Document Upload -->
           <div class="library-section">
             <div class="section-title">Add Documents</div>
-            <div class="upload-dropzone" aria-label="Document upload">
+            <div class="upload-dropzone" id="upload-dropzone" aria-label="Document upload">
               <div class="upload-icon-wrapper">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M12 16V8M8 11l4-4 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                   <path d="M4 16.5A5.5 5.5 0 0 1 7.8 7.3 6.5 6.5 0 0 1 20 10.5 4.5 4.5 0 0 1 18 19H6a3.5 3.5 0 0 1-2-2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                 </svg>
               </div>
-              <span class="upload-label">Direct Upload (Future Scope)</span>
-              <span class="upload-sub">Files currently placed into <code>data/</code> folder are mounted directly.</span>
+              <label class="upload-label" for="pdf-upload-input">Choose a PDF</label>
+              <input id="pdf-upload-input" type="file" accept=".pdf,application/pdf" hidden />
+              <span class="upload-sub">Uploads are stored securely and remain available for document processing.</span>
+              <span class="upload-status" id="upload-status" role="status" aria-live="polite"></span>
             </div>
           </div>
         </div>

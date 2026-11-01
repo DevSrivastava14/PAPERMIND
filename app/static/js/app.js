@@ -49,6 +49,8 @@ const dom = {
   activePaperBox:    $("active-paper-display"),
   activePaperName:   $("active-paper-name"),
   presetList:        $("preset-list"),
+  uploadInput:       $("pdf-upload-input"),
+  uploadStatus:      $("upload-status"),
 
   // Workspace Composer (Center)
   queryInput:        $("query-input"),
@@ -199,6 +201,68 @@ function selectPaper(filename) {
   });
 
   updateSubmitState();
+}
+
+function renderUploadedDocuments(documents) {
+  if (!dom.presetList) return;
+  dom.presetList.querySelectorAll(".uploaded-doc-item").forEach((item) => item.remove());
+  documents.forEach((uploadedDocument) => {
+    const item = document.createElement("div");
+    item.className = "doc-item-btn uploaded-doc-item";
+    item.setAttribute("role", "listitem");
+
+    const info = document.createElement("div");
+    info.className = "doc-item-info";
+    const name = document.createElement("span");
+    name.className = "doc-item-name";
+    name.textContent = uploadedDocument.filename || "Uploaded PDF";
+    const status = document.createElement("span");
+    status.className = "doc-item-type";
+    status.textContent = `Uploaded · ${uploadedDocument.status || "uploaded"} · available for processing`;
+    info.append(name, status);
+    item.appendChild(info);
+    dom.presetList.appendChild(item);
+  });
+}
+
+async function loadUploadedDocuments() {
+  try {
+    const response = await fetch("/documents", { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load uploaded documents");
+    const payload = await response.json();
+    renderUploadedDocuments(Array.isArray(payload.documents) ? payload.documents : []);
+  } catch {
+    if (dom.uploadStatus) dom.uploadStatus.textContent = "Uploaded document list is unavailable.";
+  }
+}
+
+async function uploadDocument(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    if (dom.uploadStatus) dom.uploadStatus.textContent = "Choose a PDF file.";
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  if (dom.uploadStatus) dom.uploadStatus.textContent = "Uploading and validating PDF…";
+  if (dom.uploadInput) dom.uploadInput.disabled = true;
+  try {
+    const response = await fetch("/documents", { method: "POST", body: formData });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || "Upload failed.");
+    if (dom.uploadStatus) {
+      dom.uploadStatus.textContent = `${payload.filename} uploaded. Processing is not started yet.`;
+    }
+    await loadUploadedDocuments();
+  } catch (error) {
+    if (dom.uploadStatus) dom.uploadStatus.textContent = error.message || "Upload failed.";
+  } finally {
+    if (dom.uploadInput) {
+      dom.uploadInput.disabled = false;
+      dom.uploadInput.value = "";
+    }
+  }
 }
 
 // ── Validation Helpers ─────────────────────────────────────────────────────
@@ -1042,6 +1106,10 @@ function init() {
     }
   });
 
+  dom.uploadInput?.addEventListener("change", () => {
+    uploadDocument(dom.uploadInput.files?.[0]);
+  });
+
   // Starter query prompt buttons
   document.querySelectorAll(".starter-query-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1068,6 +1136,7 @@ function init() {
   dom.errorDismissBtn?.addEventListener("click", dismissError);
   dom.evaluationLoadBtn?.addEventListener("click", loadSelectedEvaluation);
   loadEvaluationArtifacts();
+  loadUploadedDocuments();
 
   // Default initial UI state
   showState(dom.stateEmpty);

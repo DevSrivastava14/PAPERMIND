@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.multimodal.representation import ElementType, MultimodalElement
 from app.orchestration.langgraph_graph import GraphState, build_papermind_graph
 from app.evaluation.viewer import list_artifacts, load_artifact
+from app.documents.manager import list_documents, save_uploaded_pdf
 
 logger = logging.getLogger("papermind.api")
 
@@ -359,6 +360,29 @@ def _result_diagnostics(
 def health() -> dict[str, str]:
     """Lightweight health check endpoint returning API health status."""
     return {"status": "healthy"}
+
+
+@app.get("/documents")
+def documents() -> dict[str, list[dict[str, object]]]:
+    """List application-managed uploaded documents."""
+    try:
+        return {"documents": list_documents()}
+    except OSError:
+        raise HTTPException(status_code=500, detail="Uploaded documents are unavailable")
+
+
+@app.post("/documents", status_code=201)
+def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
+    """Validate and persist one PDF without starting document ingestion."""
+    filename = file.filename or ""
+    try:
+        return save_uploaded_pdf(filename, file.file)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError:
+        raise HTTPException(status_code=500, detail="The uploaded document could not be stored")
+    finally:
+        file.file.close()
 
 
 @app.get("/evaluation/results")

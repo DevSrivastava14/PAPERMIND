@@ -582,7 +582,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Future Upload Dropzone */
+/* Managed Upload Dropzone */
 .upload-dropzone {
   border: 1px dashed var(--border-hover);
   border-radius: var(--radius-md);
@@ -612,6 +612,7 @@ body {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-medium);
+  cursor: pointer;
 }
 
 .upload-sub {
@@ -623,6 +624,13 @@ body {
 .upload-sub code {
   font-family: var(--font-mono);
   color: var(--text-medium);
+}
+
+.upload-status {
+  min-height: 1rem;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 /* ─── 7. Center Panel: Research Workspace ──────────────────────────────── */
