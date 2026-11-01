@@ -1756,33 +1756,30 @@ Future agents and collaborators should treat the following documents as authorit
 
 ## Upcoming Roadmap
 
-### Day 32: PaperMind Interactive UI
-Build a polished, portfolio-grade interactive web interface connected to the live FastAPI backend (`POST /query`, `GET /health`):
-- **Core Features:**
-  - PDF paper selection/upload adhering to path-traversal safety and size bounds.
-  - Query submission with loading, error, and grounded-refusal empty states.
-  - Grounded answer display with interactive inline citations (`[1]`, `[2]`).
-  - Multimodal evidence inspection panel showing page number, element type (`TEXT`, `CAPTION`, `IMAGE`), and raw similarity scores.
-  - Retrieval diagnostic drawer displaying active reranker, pre-rerank candidate count, result count, retrieval latency, and LLM latency.
-  - Benchmark viewer displaying pre-computed metrics from saved evaluation artifacts.
-- **Scope Note:** Connects directly to the existing backend without altering retrieval or reranking algorithms.
+### Completed Phase — Day 32: PaperMind Interactive UI
 
-### Day 33: Final Engineering Polish
-- Review and refine code organization, variable naming, and error handling across all modules.
-- Audit test suites, Docker container startup, logging sanitation, and configuration defaults.
-- Clean up obsolete helper scripts or dead code without removing required functionality.
-- Verify end-to-end reliability across edge cases (e.g., malformed queries, out-of-domain PDFs).
+**Status: Complete through Day 32.8.**
 
-### Day 34: Portfolio & Interview Readiness
-- Prepare technical explanations for systems engineering interviews:
-  - Dense + Sparse (BM25) + RRF hybrid retrieval mechanics.
-  - Why text cross-encoders cannot directly rank raw images and how `MultimodalReranker` mitigates this.
-  - LangGraph orchestration vs. linear chains.
-  - Sub-second CPU latency engineering (candidate pool tuning).
-  - Scalability architecture roadmap for 100,000+ multi-paper institutional repositories.
-- Final portfolio demonstration walkthrough and presentation checklist.
+Built and verified a polished, portfolio-grade research interface connected to the existing FastAPI backend.
 
-### Day 32.4 Verification — Grounded Answer and Citation UX
+Completed capabilities:
+
+- Query submission with loading, error, and grounded-refusal states.
+- Grounded answer rendering with interactive inline citations.
+- Two-way synchronization between citations and evidence cards.
+- Multimodal evidence inspection, including actual image previews, captions, associated text, and provenance.
+- Retrieval diagnostics showing available dense, BM25, RRF, CrossEncoder, CLIP, and final-ranking information.
+- Technical telemetry and retrieval-stage details.
+- Read-only viewer for saved evaluation artifacts.
+- Responsive desktop, tablet, and mobile layouts.
+- Keyboard-accessible citation navigation and safe DOM rendering.
+
+**Scope boundary:** The interface currently uses the existing sample-paper workflow. Uploading PDFs from the user's local computer is a separate upcoming feature and has not yet been implemented.
+
+---
+
+## Day 32.4 Verification — Grounded Answer and Citation UX
+
 - Verified frontend JavaScript syntax with `node --check app\static\js\app.js`.
 - Verified the focused API suite with `.venv\Scripts\python.exe -m pytest tests\test_api.py -q`: **17 passed in 6.73s**.
 - Verified the live UI against FastAPI at `http://127.0.0.1:8000/` and a real `/query` response:
@@ -1795,7 +1792,8 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
 - No frontend test framework exists in the repository; no new test dependency was introduced.
 - Remaining limitation: unresolved-citation and grounded-refusal branches were verified by code inspection, but not triggered through a deterministic browser fixture.
 
-### Day 32.5 — Multimodal Evidence Inspection
+## Day 32.5 — Multimodal Evidence Inspection
+
 - Extended `/query` citation metadata for retrieved visual elements without changing retrieval or generation:
   - Inline `data:image/...;base64,...` payloads from actual in-memory image bytes.
   - Existing related element IDs.
@@ -1803,10 +1801,11 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
 - Added safe Evidence Inspector image preview and explicit missing-image handling.
 - Preserved text citation behavior and existing citation synchronization.
 - Added focused API coverage for image metadata, caption relationships, missing assets, and unchanged text citations.
-- Validation: `.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **20 passed**; `node --check app\static\js\app.js` passed; Pylance reported no syntax errors.
+- Validation: `.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **20 passed**; `node --check app\static\js\app.js` passed; Pylance reported no syntax errors.
 - Browser fixture verification confirmed image preview, caption/text display, text evidence switching, and missing-image fallback.
 
-### Day 32.6 — Retrieval Diagnostics
+## Day 32.6 — Retrieval Diagnostics
+
 - Preserved available dense, BM25, RRF, CrossEncoder, CLIP, final-score, and final-rank metadata at existing retrieval boundaries without changing retrieval ordering or model execution.
 - Extended `/query` with optional per-citation diagnostics and per-run candidate/result metadata; unavailable values are omitted rather than represented as zero.
 - Added compact diagnostics rendering to the Evidence Inspector and technical details drawer while preserving Task 32.4 citation and XSS protections and Task 32.5 image evidence behavior.
@@ -1814,11 +1813,191 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
 - Validation: focused retrieval/orchestration/reranker/API suite — **93 passed**; `node --check app\static\js\app.js` passed; Pylance syntax checks passed.
 - `tests\test_multimodal_sparse_retrieval.py` currently reports 4 pre-existing behavior failures related to result expansion/top-k and image filtering; diagnostics changes only annotate returned results and do not alter those retrieval paths.
 
-### Day 32.7 — Saved Evaluation Results Viewer
+## Day 32.7 — Saved Evaluation Results Viewer
+
 - Added a read-only `GET /evaluation/results` endpoint with a fixed registry for `baseline`, `day23`, `day25`, and `q1_smoke` artifacts.
 - Added artifact-specific JSON adapters in `app/evaluation/viewer.py`; historical retrieval, lightweight checkpoint, DeepEval, null/failure, and incomplete states remain distinguishable without running evaluation code.
 - Added a collapsed central-workspace Saved Evaluation Results viewer with on-demand artifact loading, metadata, compact metric summaries, and expandable per-question details using safe DOM text rendering.
 - Added API coverage for listing, selecting all four saved artifacts, null versus available DeepEval values, unknown/path-like identifiers, and read-only JSON loading.
-- Validation: `.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **29 passed**; evaluation regression suite — **48 passed, 2 unrelated model deprecation warnings**; `node --check app\static\js\app.js` passed; `git diff --check` passed.
+- Validation: `.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **29 passed**; evaluation regression suite — **48 passed, 2 unrelated model deprecation warnings**; `node --check app\static\js\app.js` passed; `git diff --check` passed.
 - Browser verification loaded the saved baseline artifact through `GET /evaluation/results?artifact_id=baseline`; metadata, computed retrieval summaries, and all eight expandable questions rendered in the central workspace.
 - No evaluation, model inference, or Groq call was run; original artifacts were not modified and no commit was created.
+
+## Day 32.8 — Responsive UI & End-to-End Verification
+
+- Verified the complete frontend workflow with intercepted query fixtures: grounded answer rendering, inline citation navigation, reverse evidence-card synchronization, actual image preview, caption, associated text, provenance, retrieval diagnostics, and technical telemetry.
+- Verified all four saved evaluation artifacts through the real read-only endpoint: `baseline`, `day23`, `day25`, and `q1_smoke`. Day 25 incomplete DeepEval metrics remained explicitly labeled incomplete with their saved error text.
+- Verified deterministic refusal and API-error fixtures remain distinct: insufficient evidence renders the grounded refusal state, while a 503 renders the query execution failure alert.
+- Verified desktop (`1440x900`), tablet (`768x1024`), and mobile (`390x844`) layouts in the browser. No horizontal overflow was observed; document-library and evidence-inspector toggle controls remained available.
+- Verified keyboard citation activation with Enter and visible focus styling. Browser fixture runs reported no application console/page errors; the intentional 503 error fixture produced the expected browser network error entry.
+- Focused API regression tests: `.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **29 passed in 6.34s**. JavaScript syntax (`node --check app\static\js\app.js`) and `git diff --check` passed.
+- No production code defects were found and no frontend implementation changes were required. Live `/query` generation was not retried; prior Groq HTTP 429 remains an environment limitation. The four sparse-retrieval failures remain pre-existing and outside this verification task.
+
+### Day 33 — Local PDF Picker, Upload & Document Management
+
+**Objective:** Allow users to select a PDF from their own computer and add it to PaperMind through the interface.
+
+**Planned work:**
+
+- Add a local PDF file picker to the Document Library.
+- Support selecting a PDF through the browser's file input.
+- Consider drag-and-drop if it fits the existing interface without unnecessary complexity.
+- Implement a dedicated upload endpoint using secure server-side file handling.
+- Validate file extension, content, size, and malformed PDFs.
+- Enforce the existing document-root and path-safety principles; never trust client-supplied filesystem paths.
+- Prevent path traversal, unsafe filenames, and unintended overwrites.
+- Store uploaded documents in a controlled application-managed location.
+- Display document names and upload/processing states in the Document Library.
+- Provide useful success and failure feedback.
+- Preserve the existing sample-paper workflow.
+
+**Acceptance criteria:**
+
+- A user can select and upload a valid local PDF.
+- Invalid, oversized, malformed, and disallowed files are rejected safely.
+- Upload errors do not expose internal filesystem paths.
+- Uploaded documents are identifiable in the UI.
+- Existing `/query` behavior remains functional.
+- Focused API and frontend tests cover upload validation and error cases.
+
+**Scope boundary:** Do not create a second retrieval pipeline. Reuse existing parsing and ingestion components wherever appropriate. First inspect their lifecycle and persistence requirements before implementing integration.
+
+**Commit checkpoint:** `feat(ui): add local PDF upload and document management`
+
+---
+
+### Day 34 — Document-Specific Ingestion, Indexing & Retrieval Isolation
+
+**Objective:** Ensure an uploaded document can actually be researched through the existing multimodal pipeline.
+
+**Investigation and implementation:**
+
+- Trace the current ingestion lifecycle, including parsing, chunk creation, text embeddings, visual embeddings, BM25 indexing, and relationship construction.
+- Determine how the existing indexes and document state are stored and retrieved.
+- Identify assumptions that currently bind ingestion and querying to `sample_paper.pdf`.
+- Design the smallest reliable document-aware extension.
+- Associate indexed elements and retrieval results with their source document.
+- Ensure a query against a selected document cannot accidentally retrieve evidence from another document.
+- Connect the selected document to the existing query workflow.
+- Preserve multimodal retrieval, citations, and diagnostics.
+- Handle ingestion failures and partial processing safely.
+- Avoid unnecessary changes to retrieval algorithms or ranking behavior.
+
+**Acceptance criteria:**
+
+- An uploaded PDF is processed through the existing ingestion pipeline.
+- Its text and visual elements become available for retrieval.
+- Queries operate on the selected document.
+- Citations identify the correct document, page, and element.
+- Document-specific retrieval isolation is tested.
+- Failed ingestion does not leave misleading document-ready states.
+- Existing sample-paper tests and behavior remain intact.
+
+**Commit checkpoint:** `feat(ingestion): support document-specific research`
+
+---
+
+### Day 35 — Multi-Document Workflow & Reliability
+
+**Objective:** Validate that the upload-to-research experience works reliably beyond a single PDF.
+
+**Planned work:**
+
+- Test ingestion and querying across multiple distinct PDFs.
+- Verify document selection and switching.
+- Verify retrieval isolation between documents.
+- Test duplicate filenames and document identity handling.
+- Test malformed, empty, oversized, and unsupported PDFs.
+- Verify partial ingestion failures and recovery behavior.
+- Check document processing state transitions.
+- Verify citations, image evidence, and retrieval diagnostics for different documents.
+- Check that existing sample-paper functionality remains backward compatible.
+- Review resource cleanup and index lifecycle behavior.
+
+**Acceptance criteria:**
+
+- Multiple documents can be processed without cross-document evidence leakage.
+- Switching selected documents changes the retrieval scope correctly.
+- Failed or incomplete ingestion is represented accurately.
+- No fabricated processing or retrieval success states.
+- Focused regression tests cover document isolation and lifecycle edge cases.
+- The complete upload → ingestion → query → answer → citation workflow is browser-verified.
+
+**Commit checkpoint:** `test(ingestion): verify multi-document isolation and reliability`
+
+---
+
+### Day 36 — Final Engineering Polish & System Review
+
+**Objective:** Bring the complete PaperMind system to the agreed portfolio engineering standard.
+
+**Planned work:**
+
+- Review code organization, naming, error handling, and module boundaries.
+- Audit API validation and security.
+- Review configuration defaults and environment-variable documentation.
+- Inspect logging for accidental sensitive information.
+- Verify Docker startup and environment setup.
+- Review dependency consistency and obsolete helper scripts.
+- Run focused and full regression suites where appropriate.
+- Review retrieval and evaluation benchmark reproducibility.
+- Inspect failure behavior and performance bottlenecks.
+- Review LangSmith integration and available traces; distinguish actual tracing from planned or unavailable instrumentation.
+- Fix genuine reliability issues rather than making cosmetic changes.
+
+**Acceptance criteria:**
+
+- Reproducible local setup.
+- Reliable application startup.
+- Relevant automated tests pass.
+- Configuration and security behavior are documented.
+- Benchmark methodology and saved results are understandable.
+- Known limitations and pre-existing failures are explicitly documented.
+
+**Commit checkpoint:** `chore: finalize PaperMind engineering quality`
+
+---
+
+### Day 37 — Portfolio, Documentation & Interview Readiness
+
+**Objective:** Make PaperMind understandable, reproducible, and defensible in technical interviews.
+
+**Documentation and presentation:**
+
+- Final recruiter-facing README.
+- Problem statement and motivation.
+- Architecture diagram and data-flow explanation.
+- Installation and environment configuration.
+- Upload-to-research workflow documentation.
+- API endpoint documentation.
+- Test and benchmark instructions.
+- Actual experimental results and limitations.
+- Screenshots of the real interface.
+- Short project demonstration walkthrough.
+- Technical trade-offs and future scalability roadmap.
+
+**Interview preparation topics:**
+
+1. Dense retrieval, BM25 sparse retrieval, and Reciprocal Rank Fusion.
+2. Why text CrossEncoders cannot directly rank raw images.
+3. How the MultimodalReranker combines text and visual relevance.
+4. LangGraph orchestration versus linear chains.
+5. FAISS indexing and vector similarity.
+6. Document isolation and multimodal ingestion lifecycle.
+7. API reliability, validation, and security.
+8. Latency versus retrieval-quality trade-offs.
+9. Evaluation methodology and interpretation of DeepEval metrics.
+10. Scaling toward 100,000+ papers in an institutional research repository.
+
+**Acceptance criteria:**
+
+- A recruiter can understand the project from its README.
+- A technical reviewer can reproduce the main workflow.
+- Architecture and benchmark claims are supported by actual implementation and results.
+- The demo shows real uploaded-document research, citations, multimodal evidence, and diagnostics.
+- Interview explanations cover design decisions, trade-offs, and limitations.
+
+**Commit checkpoint:** `docs: finalize PaperMind portfolio and interview documentation`
+
+---
+
