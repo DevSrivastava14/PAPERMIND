@@ -367,35 +367,172 @@ function renderResult(data, requestId) {
     dom.footerRequestId.textContent = `trace: ${requestId}`;
   }
 
-  // Case A: Insufficient evidence in paper
+  // Case A: Insufficient evidence in paper (Grounded Refusal)
   if (data.insufficient_evidence === true) {
     if (dom.insufficientMsg) {
-      // Use actual grounded refusal answer from backend, or standard fallback
+      // Display actual grounded refusal reason from model without fabrication
       dom.insufficientMsg.textContent =
         data.answer ||
         "The paper does not contain enough grounded evidence to answer this question with high confidence.";
     }
     showState(dom.stateInsufficient);
+
+    // Preserve retrieved candidate evidence so user can inspect evaluated sources
     if (state.citations.length > 0) {
       renderCitations(state.citations);
+    } else {
+      if (dom.citationCount) dom.citationCount.textContent = "0 cited";
+      if (dom.citationList) dom.citationList.innerHTML = "";
+      if (dom.inspectorEmptyTip) dom.inspectorEmptyTip.classList.remove("hidden");
+      if (dom.inspectorActive) dom.inspectorActive.classList.add("hidden");
     }
+
     renderTechDetails(data, requestId);
     return;
   }
 
   // Case B: Grounded synthesis answer
+  showState(dom.stateSuccess);
+  renderCitations(state.citations);
   renderGroundedAnswer(data.answer);
+
+  // Initialize two-way synchronization for the default active citation
+  if (state.citations.length > 0) {
+    selectCitation(0, false);
+  }
 
   if (dom.contextText) {
     dom.contextText.textContent = data.grounded_context || "(No raw context excerpt)";
   }
 
-  showState(dom.stateSuccess);
-  renderCitations(state.citations);
   renderTechDetails(data, requestId);
 }
 
-// ── Grounded Answer & Inline Citations ─────────────────────────────────────
+// ── Grounded Answer & Safe Markdown Parsing ───────────────────────────────
+function findCitationIndex(numStr) {
+  if (!state.citations || state.citations.length === 0) return -1;
+  const clean = String(numStr).trim();
+  const targetLabel = `[${clean}]`;
+  const targetNum = parseInt(clean, 10);
+
+  return state.citations.findIndex((c, idx) => {
+    if (c.citation_label === targetLabel || c.citation_label === clean) return true;
+    const labelNum = (c.citation_label || "").replace(/\D/g, "");
+    if (labelNum && parseInt(labelNum, 10) === targetNum) return true;
+    if (!isNaN(targetNum) && (idx + 1) === targetNum) return true;
+    return false;
+  });
+}
+
+function selectCitation(targetIdx, shouldScroll = true) {
+  if (!state.citations || state.citations.length === 0) return;
+  if (targetIdx < 0 || targetIdx >= state.citations.length) return;
+
+  state.selectedCitationIdx = targetIdx;
+  const c = state.citations[targetIdx];
+  const targetNum = String(targetIdx + 1);
+  const labelNum = (c.citation_label || "").replace(/\D/g, "");
+
+  // 1. Update Right Inspector list card selection
+  const cards = document.querySelectorAll(".citation-card");
+  cards.forEach((card, idx) => {
+    const isMatch = idx === targetIdx;
+    card.classList.toggle("selected", isMatch);
+    if (isMatch && shouldScroll) {
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  });
+
+  // 2. Update Inspector Detail View
+  inspectCitation(c);
+
+  // 3. Update all inline citation buttons in Answer prose (Two-Way Sync)
+  document.querySelectorAll(".inline-citation:not(.inline-citation--unresolved)").forEach((el) => {
+    const citeNum = el.getAttribute("data-cite-num");
+    const matches = citeNum === targetNum || (labelNum && citeNum === labelNum);
+    el.classList.toggle("active", Boolean(matches));
+  });
+}
+
+function renderSafeInlines(text, parentEl) {
+  if (!text) return;
+
+  // Tokenize bold, code, and citations safely
+  const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*|\[\d+(?:\s*,\s*\d+)*\])/g;
+  let lastIdx = 0;
+  let match;
+
+  while ((match = tokenRegex.exec(text)) !== null) {
+    // Append plain text preceding match
+    if (match.index > lastIdx) {
+      parentEl.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
+    }
+
+    const token = match[0];
+
+    // Code token: `...`
+    if (token.startsWith("`") && token.endsWith("`") && token.length >= 2) {
+      const code = document.createElement("code");
+      code.textContent = token.slice(1, -1);
+      parentEl.appendChild(code);
+    }
+    // Bold token: **...**
+    else if (token.startsWith("**") && token.endsWith("**") && token.length >= 4) {
+      const strong = document.createElement("strong");
+      renderSafeInlines(token.slice(2, -2), strong);
+      parentEl.appendChild(strong);
+    }
+    // Citation token: [1] or [1, 2]
+    else if (token.startsWith("[") && token.endsWith("]")) {
+      const inner = token.slice(1, -1);
+      const nums = inner.split(",").map((s) => s.trim()).filter(Boolean);
+
+      nums.forEach((numStr) => {
+        const targetIdx = findCitationIndex(numStr);
+
+        if (targetIdx !== -1) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "inline-citation";
+          btn.setAttribute("data-cite-num", numStr);
+          btn.setAttribute("aria-label", `View evidence citation [${numStr}]`);
+          btn.textContent = `[${numStr}]`;
+
+          if (targetIdx === state.selectedCitationIdx) {
+            btn.classList.add("active");
+          }
+
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            toggleRightPanel(true);
+            selectCitation(targetIdx, true);
+          });
+
+          parentEl.appendChild(btn);
+        } else {
+          // Unresolved citation: visibly unresolved, non-interactive marker with tooltip
+          const span = document.createElement("span");
+          span.className = "inline-citation inline-citation--unresolved";
+          span.setAttribute("data-cite-num", numStr);
+          span.setAttribute("role", "note");
+          span.setAttribute("tabindex", "0");
+          span.setAttribute("title", `Citation [${numStr}] not found in retrieved evidence`);
+          span.setAttribute("aria-label", `Citation [${numStr}] (not found in retrieved evidence)`);
+          span.textContent = `[${numStr}]`;
+          parentEl.appendChild(span);
+        }
+      });
+    }
+
+    lastIdx = match.index + match[0].length;
+  }
+
+  // Append remaining plain text
+  if (lastIdx < text.length) {
+    parentEl.appendChild(document.createTextNode(text.slice(lastIdx)));
+  }
+}
+
 function renderGroundedAnswer(rawAnswer) {
   if (!dom.answerText) return;
 
@@ -405,92 +542,88 @@ function renderGroundedAnswer(rawAnswer) {
     return;
   }
 
-  // Clear previous content
   dom.answerText.innerHTML = "";
 
-  // Split into paragraphs by double newlines or single newlines
-  const paragraphs = text.split(/\n\n+/);
+  const lines = text.split(/\r?\n/);
+  let currentList = null;
 
-  paragraphs.forEach((paraText) => {
+  function flushList() {
+    if (currentList) {
+      dom.answerText.appendChild(currentList.element);
+      currentList = null;
+    }
+  }
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushList();
+      i++;
+      continue;
+    }
+
+    // 1. Heading check: e.g. ### Heading or ## Heading
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      flushList();
+      const level = Math.min(4, Math.max(2, headingMatch[1].length));
+      const h = document.createElement(`h${level}`);
+      renderSafeInlines(headingMatch[2], h);
+      dom.answerText.appendChild(h);
+      i++;
+      continue;
+    }
+
+    // 2. Unordered list item: - item or * item
+    const ulMatch = trimmed.match(/^[\*\-]\s+(.+)$/);
+    if (ulMatch) {
+      if (!currentList || currentList.type !== "ul") {
+        flushList();
+        currentList = { type: "ul", element: document.createElement("ul") };
+      }
+      const li = document.createElement("li");
+      renderSafeInlines(ulMatch[1], li);
+      currentList.element.appendChild(li);
+      i++;
+      continue;
+    }
+
+    // 3. Ordered list item: 1. item
+    const olMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    if (olMatch) {
+      if (!currentList || currentList.type !== "ol") {
+        flushList();
+        currentList = { type: "ol", element: document.createElement("ol") };
+      }
+      const li = document.createElement("li");
+      renderSafeInlines(olMatch[2], li);
+      currentList.element.appendChild(li);
+      i++;
+      continue;
+    }
+
+    // 4. Standard paragraph: accumulate until empty line, heading, or list
+    flushList();
+    const paragraphLines = [trimmed];
+    i++;
+    while (i < lines.length) {
+      const nextLine = lines[i].trim();
+      if (!nextLine || nextLine.startsWith("#") || nextLine.match(/^[\*\-]\s+/) || nextLine.match(/^\d+\.\s+/)) {
+        break;
+      }
+      paragraphLines.push(nextLine);
+      i++;
+    }
+
     const p = document.createElement("p");
-    p.style.marginBottom = "0.85rem";
-
-    // Parse citation patterns like [1], [2], or [1, 2]
-    // Regex matches [digits] or [digits, digits...]
-    const citationRegex = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
-    let lastIdx = 0;
-    let match;
-
-    while ((match = citationRegex.exec(paraText)) !== null) {
-      // Append text before match
-      if (match.index > lastIdx) {
-        p.appendChild(document.createTextNode(paraText.slice(lastIdx, match.index)));
-      }
-
-      // Parse individual citation numbers from e.g. "1, 2" or "1"
-      const nums = match[1].split(",").map((s) => s.trim()).filter(Boolean);
-
-      nums.forEach((numStr) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "inline-citation";
-        btn.textContent = `[${numStr}]`;
-        btn.setAttribute("aria-label", `Jump to citation ${numStr}`);
-
-        btn.addEventListener("click", (e) => {
-          e.preventDefault();
-          highlightAndInspectCitationByNumber(numStr);
-        });
-
-        p.appendChild(btn);
-      });
-
-      lastIdx = match.index + match[0].length;
-    }
-
-    // Append remaining text after last match
-    if (lastIdx < paraText.length) {
-      p.appendChild(document.createTextNode(paraText.slice(lastIdx)));
-    }
-
+    renderSafeInlines(paragraphLines.join(" "), p);
     dom.answerText.appendChild(p);
-  });
-}
-
-function highlightAndInspectCitationByNumber(numStr) {
-  if (!state.citations || state.citations.length === 0) return;
-
-  const targetLabel = `[${numStr}]`;
-  let targetIdx = state.citations.findIndex((c) => {
-    return c.citation_label === targetLabel ||
-           c.citation_label === numStr ||
-           c.citation_label === `[${parseInt(numStr, 10)}]`;
-  });
-
-  // Fallback: 1-based index match
-  if (targetIdx === -1) {
-    const parsed = parseInt(numStr, 10) - 1;
-    if (parsed >= 0 && parsed < state.citations.length) {
-      targetIdx = parsed;
-    }
   }
 
-  if (targetIdx !== -1) {
-    // Force open right inspector panel if collapsed/closed
-    toggleRightPanel(true);
-
-    // Select card in list
-    const cards = document.querySelectorAll(".citation-card");
-    cards.forEach((el, idx) => {
-      const match = idx === targetIdx;
-      el.classList.toggle("selected", match);
-      if (match) {
-        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      }
-    });
-
-    inspectCitation(state.citations[targetIdx]);
-  }
+  flushList();
 }
 
 // ── Evidence Inspector Rendering ───────────────────────────────────────────
@@ -580,18 +713,16 @@ function renderCitations(citations) {
       card.appendChild(meter);
     }
 
-    // Click handler to select and inspect
+    // Click handler to select and inspect (two-way synchronization)
     card.addEventListener("click", () => {
-      document.querySelectorAll(".citation-card").forEach((el) => el.classList.remove("selected"));
-      card.classList.add("selected");
-      inspectCitation(c);
+      selectCitation(idx, false);
     });
 
     dom.citationList.appendChild(card);
   });
 
-  // Select first citation by default
-  inspectCitation(citations[0]);
+  // Select first citation by default with two-way synchronization
+  selectCitation(0, false);
 }
 
 function inspectCitation(c) {

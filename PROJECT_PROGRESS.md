@@ -1781,3 +1781,16 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
   - Sub-second CPU latency engineering (candidate pool tuning).
   - Scalability architecture roadmap for 100,000+ multi-paper institutional repositories.
 - Final portfolio demonstration walkthrough and presentation checklist.
+
+### Day 32.4 Verification — Grounded Answer and Citation UX
+- Verified frontend JavaScript syntax with `node --check app\static\js\app.js`.
+- Verified the focused API suite with `.venv\Scripts\python.exe -m pytest tests\test_api.py -q`: **17 passed in 6.73s**.
+- Verified the live UI against FastAPI at `http://127.0.0.1:8000/` and a real `/query` response:
+  - 5 evidence cards and 14 inline citation controls rendered.
+  - Answer output contained no executable `<script>` or `<img>` nodes.
+  - Inline citation activation opened the evidence inspector.
+  - Evidence-card selection updated the inspector and answer highlight.
+  - Focused citation activation with Enter worked.
+- Pylance/problems checks reported no errors in `app\static\js\app.js` or `app\static\css\styles.css`.
+- No frontend test framework exists in the repository; no new test dependency was introduced.
+- Remaining limitation: unresolved-citation and grounded-refusal branches were verified by code inspection, but not triggered through a deterministic browser fixture.
