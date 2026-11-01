@@ -6,11 +6,137 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.api.main import _sanitize_message, app, generate_document_id
-from app.multimodal.representation import ElementType
-from app.retrieval.multimodal_models import MultimodalCitation, MultimodalRetrievedContext
+from app.multimodal.collection import MultimodalDocument
+from app.multimodal.representation import ElementType, MultimodalElement
+from app.retrieval.multimodal_models import (
+    MultimodalCitation,
+    MultimodalRetrievedContext,
+)
+from app.indexing.multimodal_models import MultimodalSearchResult
 
 
 client = TestClient(app)
+
+
+def _image_context(image: MultimodalElement) -> MultimodalRetrievedContext:
+    citation = MultimodalCitation(
+        citation_label="[1]",
+        element_id=image.element_id,
+        element_type=ElementType.IMAGE,
+        source_filename=image.source_filename,
+        page_number=image.page_number,
+        score=0.8,
+    )
+    return MultimodalRetrievedContext(
+        formatted_context="[1] [Image] Source: paper.pdf (Page 2)\nFigure",
+        citations=[citation],
+        search_results=[MultimodalSearchResult(element=image, score=0.8)],
+    )
+
+
+def test_query_returns_image_bytes_caption_and_relationships() -> None:
+    caption = MultimodalElement(
+        element_id="paper.pdf#caption_1",
+        element_type=ElementType.CAPTION,
+        source_filename="paper.pdf",
+        page_number=2,
+        content="Figure 1. System architecture.",
+    )
+    image = MultimodalElement(
+        element_id="paper.pdf#page_2_img_0",
+        element_type=ElementType.IMAGE,
+        source_filename="paper.pdf",
+        page_number=2,
+        content=b"\x89PNG\r\n\x1a\n",
+        related_element_ids=[caption.element_id],
+        metadata={"image_format": "png"},
+    )
+    context = _image_context(image)
+    document = MultimodalDocument([image, caption], source_filename="paper.pdf")
+
+    with patch(
+        "app.api.main.graph.invoke",
+        return_value={"status": "success", "context": context, "document": document},
+    ):
+        response = client.post(
+            "/query",
+            json={"pdf_path": "data/sample_paper.pdf", "query": "Show the architecture"},
+        )
+
+    citation = response.json()["citations"][0]
+    assert response.status_code == 200
+    assert citation["element_type"] == "image"
+    assert citation["image_data_url"].startswith("data:image/png;base64,")
+    assert citation["caption"] == "Figure 1. System architecture."
+    assert citation["related_element_ids"] == [caption.element_id]
+
+
+def test_query_marks_missing_image_asset_without_fabrication() -> None:
+    image = MultimodalElement(
+        element_id="paper.pdf#page_2_img_0",
+        element_type=ElementType.IMAGE,
+        source_filename="paper.pdf",
+        page_number=2,
+        content="missing.png",
+        metadata={"image_format": "png"},
+    )
+    context = _image_context(image)
+
+    with patch(
+        "app.api.main.graph.invoke",
+        return_value={"status": "success", "context": context},
+    ):
+        response = client.post(
+            "/query",
+            json={"pdf_path": "data/sample_paper.pdf", "query": "Show the figure"},
+        )
+
+    citation = response.json()["citations"][0]
+    assert response.status_code == 200
+    assert "image_data_url" not in citation
+    assert "caption" not in citation
+
+
+def test_query_keeps_text_citations_without_visual_metadata() -> None:
+    text = MultimodalElement(
+        element_id="paper.pdf#chunk_0",
+        element_type=ElementType.TEXT,
+        source_filename="paper.pdf",
+        page_number=1,
+        content="Text evidence.",
+    )
+    citation = MultimodalCitation(
+        citation_label="[1]",
+        element_id=text.element_id,
+        element_type=ElementType.TEXT,
+        source_filename=text.source_filename,
+        page_number=text.page_number,
+        score=0.7,
+    )
+    context = MultimodalRetrievedContext(
+        formatted_context="Text evidence.",
+        citations=[citation],
+        search_results=[MultimodalSearchResult(element=text, score=0.7)],
+    )
+
+    with patch(
+        "app.api.main.graph.invoke",
+        return_value={"status": "success", "context": context},
+    ):
+        response = client.post(
+            "/query",
+            json={"pdf_path": "data/sample_paper.pdf", "query": "What does it say?"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["citations"][0] == {
+        "citation_label": "[1]",
+        "element_id": text.element_id,
+        "element_type": "text",
+        "source_filename": "paper.pdf",
+        "page_number": 1,
+        "score": 0.7,
+    }
 
 
 def test_query_returns_grounded_context_and_citations() -> None:
@@ -373,5 +499,3 @@ def test_api_runtime_import_path_does_not_require_deepeval() -> None:
         text=True,
     )
     assert result.returncode == 0, f"API import failed without DeepEval: {result.stderr}"
-
-

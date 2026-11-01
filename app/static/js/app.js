@@ -89,6 +89,13 @@ const dom = {
   insPage:           $("ins-page"),
   insId:             $("ins-id"),
   insScore:          $("ins-score"),
+  insVisualBox:      $("ins-visual-box"),
+  insImage:          $("ins-image"),
+  insImageStatus:    $("ins-image-status"),
+  insCaptionBlock:   $("ins-caption-block"),
+  insCaption:        $("ins-caption"),
+  insAssociatedBlock:$("ins-associated-block"),
+  insAssociated:     $("ins-associated"),
 
   // Footer
   footerRequestId:   $("footer-request-id"),
@@ -751,6 +758,26 @@ function inspectCitation(c) {
     } else {
       dom.insScore.textContent = "—";
     }
+  }
+
+  const isImage = typeKey === "image";
+  dom.insVisualBox?.classList.toggle("hidden", !isImage);
+  dom.insCaptionBlock?.classList.toggle("hidden", !isImage || !c.caption);
+  dom.insAssociatedBlock?.classList.toggle("hidden", !isImage || !c.associated_text);
+  if (dom.insCaption) dom.insCaption.textContent = c.caption || "";
+  if (dom.insAssociated) dom.insAssociated.textContent = c.associated_text || "";
+
+  if (!isImage || !dom.insImage || !dom.insImageStatus) return;
+  dom.insImage.removeAttribute("src");
+  dom.insImage.alt = `Retrieved figure from ${c.source_filename || "source document"}`;
+  dom.insImageStatus.textContent = "Image unavailable for this evidence item.";
+  if (typeof c.image_data_url === "string" && c.image_data_url.startsWith("data:image/")) {
+    dom.insImageStatus.textContent = "";
+    dom.insImage.src = c.image_data_url;
+    dom.insImage.onerror = () => {
+      dom.insImage.removeAttribute("src");
+      dom.insImageStatus.textContent = "Image unavailable for this evidence item.";
+    };
   }
 }
 

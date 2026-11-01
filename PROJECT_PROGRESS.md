@@ -1794,3 +1794,14 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
 - Pylance/problems checks reported no errors in `app\static\js\app.js` or `app\static\css\styles.css`.
 - No frontend test framework exists in the repository; no new test dependency was introduced.
 - Remaining limitation: unresolved-citation and grounded-refusal branches were verified by code inspection, but not triggered through a deterministic browser fixture.
+
+### Day 32.5 — Multimodal Evidence Inspection
+- Extended `/query` citation metadata for retrieved visual elements without changing retrieval or generation:
+  - Inline `data:image/...;base64,...` payloads from actual in-memory image bytes.
+  - Existing related element IDs.
+  - Resolved captions and associated text from the document relationship graph.
+- Added safe Evidence Inspector image preview and explicit missing-image handling.
+- Preserved text citation behavior and existing citation synchronization.
+- Added focused API coverage for image metadata, caption relationships, missing assets, and unchanged text citations.
+- Validation: `.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **20 passed**; `node --check app\static\js\app.js` passed; Pylance reported no syntax errors.
+- Browser fixture verification confirmed image preview, caption/text display, text evidence switching, and missing-image fallback.

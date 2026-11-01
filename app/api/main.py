@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from app.multimodal.representation import ElementType, MultimodalElement
 from app.orchestration.langgraph_graph import GraphState, build_papermind_graph
 
 logger = logging.getLogger("papermind.api")
@@ -142,6 +144,10 @@ class CitationResponse(BaseModel):
     source_filename: str
     page_number: int
     score: float | None = None
+    image_data_url: str | None = None
+    caption: str | None = None
+    related_element_ids: list[str] | None = None
+    associated_text: str | None = None
 
 
 class QueryResponse(BaseModel):
@@ -216,6 +222,80 @@ def _categorize_error(error_msg: str) -> str:
     if "answer generation failed" in lower:
         return "generation_error"
     return "graph_error"
+
+
+def _image_data_url(element: MultimodalElement) -> str | None:
+    """Returns an inline image payload without exposing its filesystem path."""
+    image_data = element.image_data
+    if not image_data:
+        return None
+    image_format = str(element.metadata.get("image_format") or "png").lower()
+    if image_format not in {"png", "jpeg", "jpg", "gif", "webp", "bmp", "tiff"}:
+        image_format = "png"
+    if image_format == "jpg":
+        image_format = "jpeg"
+    encoded = base64.b64encode(image_data).decode("ascii")
+    return f"data:image/{image_format};base64,{encoded}"
+
+
+def _related_evidence(
+    element: MultimodalElement,
+    document: object | None,
+) -> tuple[str | None, str | None]:
+    """Resolves only existing related caption/text elements from the document."""
+    if document is None:
+        return None, None
+    get_by_id = getattr(document, "get_by_id", None)
+    if not callable(get_by_id):
+        return None, None
+
+    caption = None
+    associated_text: list[str] = []
+    for related_id in element.related_element_ids:
+        related = get_by_id(related_id)
+        if related is None or not related.text.strip():
+            continue
+        if related.element_type == ElementType.CAPTION and caption is None:
+            caption = related.text.strip()
+        elif related.element_type != ElementType.IMAGE:
+            associated_text.append(related.text.strip())
+    return caption, "\n\n".join(associated_text) if associated_text else None
+
+
+def _citation_metadata(
+    citation: object,
+    context: object,
+    document: object | None,
+) -> dict[str, object]:
+    """Builds optional multimodal metadata from the original retrieved element."""
+    search_results = getattr(context, "search_results", None) or []
+    result = next(
+        (
+            candidate
+            for candidate in search_results
+            if getattr(candidate, "element_id", None) == getattr(citation, "element_id", None)
+        ),
+        None,
+    )
+    element = getattr(result, "element", None)
+    if not isinstance(element, MultimodalElement):
+        return {}
+
+    metadata: dict[str, object] = {}
+    if element.related_element_ids:
+        metadata["related_element_ids"] = list(element.related_element_ids)
+    if element.element_type != ElementType.IMAGE:
+        return metadata
+
+    caption, associated_text = _related_evidence(element, document)
+    image_url = _image_data_url(element)
+    if image_url is not None:
+        metadata["image_data_url"] = image_url
+    if caption is not None:
+        metadata["caption"] = caption
+    if associated_text is not None:
+        metadata["associated_text"] = associated_text
+    return metadata
 
 
 @app.get("/health")
@@ -321,17 +401,20 @@ def query_papermind(
             detail="PaperMind graph did not produce retrieval context",
         )
 
-    citations = [
-        CitationResponse(
-            citation_label=citation.citation_label,
-            element_id=citation.element_id,
-            element_type=citation.element_type.value,
-            source_filename=citation.source_filename,
-            page_number=citation.page_number,
-            score=citation.score,
+    document = state.get("document")
+    citations = []
+    for citation in context.citations:
+        citations.append(
+            CitationResponse(
+                citation_label=citation.citation_label,
+                element_id=citation.element_id,
+                element_type=citation.element_type.value,
+                source_filename=citation.source_filename,
+                page_number=citation.page_number,
+                score=citation.score,
+                **_citation_metadata(citation, context, document),
+            )
         )
-        for citation in context.citations
-    ]
 
     top_results = [
         {
@@ -392,4 +475,3 @@ def query_papermind(
         kwargs["insufficient_evidence"] = insufficient_evidence
 
     return QueryResponse(**kwargs)
-
