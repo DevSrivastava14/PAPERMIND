@@ -17,12 +17,18 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.multimodal.representation import ElementType, MultimodalElement
 from app.orchestration.langgraph_graph import GraphState, build_papermind_graph
 from app.evaluation.viewer import list_artifacts, load_artifact
-from app.documents.manager import list_documents, save_uploaded_pdf
+from app.documents.manager import (
+    get_upload_root,
+    get_document,
+    list_documents,
+    save_uploaded_pdf,
+    update_document_status,
+)
 
 logger = logging.getLogger("papermind.api")
 
@@ -116,7 +122,8 @@ def generate_document_id(
 class QueryRequest(BaseModel):
     """Input required to run the PaperMind retrieval graph."""
 
-    pdf_path: str = Field(min_length=1)
+    pdf_path: str | None = Field(default=None, min_length=1)
+    document_id: str | None = Field(default=None, min_length=1)
     query: str = Field(min_length=1)
     top_k: int = Field(default=5, gt=0)
 
@@ -126,8 +133,21 @@ class QueryRequest(BaseModel):
         clean = value.strip()
         if not clean.lower().endswith(".pdf"):
             raise ValueError(f"Unsupported file format for '{value}': only .pdf files are supported")
-        resolve_safe_pdf_path(clean)
         return clean
+
+    @model_validator(mode="after")
+    def validate_document_selector(self) -> "QueryRequest":
+        if not self.pdf_path and not self.document_id:
+            raise ValueError("pdf_path or document_id is required")
+        if self.pdf_path and self.document_id:
+            raise ValueError("Provide either pdf_path or document_id, not both")
+        if self.pdf_path:
+            resolved = resolve_safe_pdf_path(self.pdf_path)
+            if resolved.is_relative_to(get_upload_root().resolve()):
+                raise ValueError(
+                    "Uploaded documents must be queried with document_id"
+                )
+        return self
 
     @field_validator("query")
     @classmethod
@@ -411,7 +431,21 @@ def query_papermind(
     """Run the existing PaperMind graph for a PDF path and query with latency and request tracing."""
     start_time = time.perf_counter()
     request_id = getattr(raw_request.state, "request_id", None) or raw_request.headers.get("x-request-id") or str(uuid.uuid4())
-    document_id = generate_document_id(request.pdf_path)
+    if request.document_id:
+        uploaded_document = get_document(request.document_id)
+        if uploaded_document is None:
+            raise HTTPException(status_code=404, detail="Unknown document")
+        source_pdf_path = Path(str(uploaded_document["path"]))
+        document_id = request.document_id
+    else:
+        source_pdf_path = request.pdf_path
+        document_id = generate_document_id(request.pdf_path or "")
+
+    if request.document_id:
+        try:
+            update_document_status(request.document_id, "processing")
+        except (KeyError, OSError):
+            raise HTTPException(status_code=404, detail="Unknown document")
     response.headers["X-Request-ID"] = request_id
 
     # Emit request start event (safe metadata only; never log full query or prompts)
@@ -429,7 +463,7 @@ def query_papermind(
     try:
         state: GraphState = graph.invoke(
             {
-                "pdf_path": request.pdf_path,
+                "pdf_path": str(source_pdf_path),
                 "query": request.query,
                 "top_k": request.top_k,
                 "request_id": request_id,
@@ -437,6 +471,11 @@ def query_papermind(
             }
         )
     except Exception as exc:
+        if request.document_id:
+            try:
+                update_document_status(request.document_id, "failed")
+            except (KeyError, OSError):
+                pass
         total_latency_ms = (time.perf_counter() - start_time) * 1000.0
         sanitized_exc = _sanitize_message(str(exc))
         _log_event(
@@ -457,6 +496,11 @@ def query_papermind(
         )
 
     if state.get("status") == "error":
+        if request.document_id:
+            try:
+                update_document_status(request.document_id, "failed")
+            except (KeyError, OSError):
+                pass
         total_latency_ms = (time.perf_counter() - start_time) * 1000.0
         raw_error = state.get("error") or "PaperMind graph failed"
         category = _categorize_error(raw_error)
@@ -477,6 +521,12 @@ def query_papermind(
             status_code=422,
             detail=sanitized_error,
         )
+
+    if request.document_id:
+        try:
+            update_document_status(request.document_id, "ready")
+        except (KeyError, OSError):
+            raise HTTPException(status_code=500, detail="Document state could not be updated")
 
     context = state.get("context")
     status = state.get("status")

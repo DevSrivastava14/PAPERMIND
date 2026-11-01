@@ -276,6 +276,13 @@ cp /path/to/paper.pdf data/sample_paper.pdf
 docker compose up --build
 ```
 
+### Local PowerShell server startup
+
+From `RESEARCH_PROJECT`, start the API with `.\scripts\run_server.ps1`.
+This explicitly invokes `.venv\Scripts\python.exe`; a bare `uvicorn` command can
+select a different system interpreter that does not contain the project
+dependencies, including `sentence_transformers`.
+
 - Embedding weights (~2.2 GB) are automatically downloaded and cached in the persistent `hf_cache` Docker volume.
 - The service performs a Python `urllib.request` health check against `http://localhost:8000/health`.
 
@@ -307,9 +314,13 @@ Executes the full LangGraph ingestion, hybrid retrieval, multimodal reranking, a
 
 | Field | Type | Required | Default | Description |
 |---|---|:---:|:---:|---|
-| `pdf_path` | string | Yes | — | Relative filename inside `PAPER_MIND_DOC_ROOT` (e.g. `sample_paper.pdf`). |
+| `pdf_path` | string | One of `pdf_path` or `document_id` | — | Relative filename inside `PAPER_MIND_DOC_ROOT`; retained for the canonical sample-paper workflow. |
+| `document_id` | string | One of `pdf_path` or `document_id` | — | Server-generated ID returned by `POST /documents`; resolves only through the trusted upload registry. |
 | `query` | string | Yes | — | Technical question (minimum length: 1, whitespace-rejected). |
 | `top_k` | integer | No | `5` | Number of final context elements to retrieve and cite. |
+
+Uploaded documents transition through `uploaded`, `processing`, `ready`, and `failed`.
+Only the server-side registry resolves an uploaded `document_id` to its stored PDF path.
 
 #### PowerShell Invocation
 

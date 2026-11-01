@@ -19,6 +19,7 @@ from app.ingestion.pdf_parser import get_max_pdf_size_bytes, parse_research_pape
 DEFAULT_UPLOAD_ROOT = Path("data/uploads")
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 PDF_SIGNATURE = b"%PDF-"
+DOCUMENT_STATUSES = {"uploaded", "processing", "ready", "failed"}
 
 
 def get_upload_root() -> Path:
@@ -43,10 +44,36 @@ def _connect(upload_root: Path) -> sqlite3.Connection:
             storage_filename TEXT NOT NULL UNIQUE,
             size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
             uploaded_at TEXT NOT NULL,
-            status TEXT NOT NULL CHECK (status = 'uploaded')
+            status TEXT NOT NULL CHECK (status IN ('uploaded', 'processing', 'ready', 'failed'))
         )
         """
     )
+    status_sql = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents'"
+    ).fetchone()[0]
+    if "status = 'uploaded'" in status_sql:
+        connection.execute("ALTER TABLE documents RENAME TO documents_legacy")
+        connection.execute(
+            """
+            CREATE TABLE documents (
+                document_id TEXT PRIMARY KEY,
+                original_filename TEXT NOT NULL,
+                storage_filename TEXT NOT NULL UNIQUE,
+                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                uploaded_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('uploaded', 'processing', 'ready', 'failed'))
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO documents
+            (document_id, original_filename, storage_filename, size_bytes, uploaded_at, status)
+            SELECT document_id, original_filename, storage_filename, size_bytes, uploaded_at, 'uploaded'
+            FROM documents_legacy
+            """
+        )
+        connection.execute("DROP TABLE documents_legacy")
     connection.commit()
     return connection
 
@@ -63,6 +90,43 @@ def list_documents() -> list[dict[str, object]]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_document(document_id: str) -> dict[str, object] | None:
+    """Return trusted metadata and the application-managed path for one document."""
+    if not document_id or not document_id.strip():
+        return None
+    root = get_upload_root()
+    with _connect(root) as connection:
+        row = connection.execute(
+            """
+            SELECT document_id, original_filename AS filename, storage_filename,
+                   size_bytes, uploaded_at, status
+            FROM documents
+            WHERE document_id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    result = dict(row)
+    result["path"] = root / str(result["storage_filename"])
+    return result
+
+
+def update_document_status(document_id: str, status: str) -> None:
+    """Set a registered document's processing status."""
+    if status not in DOCUMENT_STATUSES:
+        raise ValueError(f"Unsupported document status: {status}")
+    root = get_upload_root()
+    with _connect(root) as connection:
+        cursor = connection.execute(
+            "UPDATE documents SET status = ? WHERE document_id = ?",
+            (status, document_id),
+        )
+        if cursor.rowcount != 1:
+            raise KeyError(f"Unknown document: {document_id}")
+        connection.commit()
 
 
 def _sanitize_filename(filename: str) -> str:

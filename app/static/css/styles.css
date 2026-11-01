@@ -316,6 +316,7 @@ body {
   flex-direction: column;
   height: 100%;
   width: 100%;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -373,6 +374,7 @@ body {
 
 .panel-scroll-body {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   padding: 1rem;
   display: flex;
@@ -545,8 +547,20 @@ body {
 }
 
 .doc-item-btn.active {
-  background: rgba(79, 138, 255, 0.08);
-  border-color: rgba(79, 138, 255, 0.35);
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px var(--accent-glow);
+}
+
+.doc-item-btn.active::after {
+  content: "Selected";
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--accent-hover);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .doc-item-icon {
@@ -581,6 +595,10 @@ body {
   font-size: 0.65rem;
   color: var(--text-muted);
 }
+
+.active-doc-meta[data-status="ready"] { color: var(--status-emerald); }
+.active-doc-meta[data-status="processing"] { color: var(--status-amber); }
+.active-doc-meta[data-status="failed"] { color: var(--status-rose); }
 
 /* Managed Upload Dropzone */
 .upload-dropzone {
@@ -1328,6 +1346,10 @@ details[open] > .context-summary .chevron {
   color: var(--text-muted);
 }
 
+.doc-item-btn[data-status="failed"] .doc-item-type { color: var(--status-rose); }
+.doc-item-btn[data-status="processing"] .doc-item-type { color: var(--status-amber); }
+.doc-item-btn[data-status="ready"] .doc-item-type { color: var(--status-emerald); }
+
 .context-drawer {
   padding: 0 0.95rem 0.95rem;
 }
@@ -1394,6 +1416,8 @@ details[open] > .context-summary .chevron {
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .inspector-empty-tip {
@@ -1419,6 +1443,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .inspector-visual-box {
@@ -1482,6 +1508,13 @@ details[open] > .context-summary .chevron {
 
 .inspector-diagnostics dt { color: var(--text-muted); }
 .inspector-diagnostics dd { color: var(--text-medium); text-align: right; }
+.inspector-diagnostics dt,
+.inspector-diagnostics dd {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 .evaluation-section {
   margin-top: 0.75rem;
@@ -1581,6 +1614,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .inspector-tag-pill {
@@ -1606,18 +1641,19 @@ details[open] > .context-summary .chevron {
 }
 
 .inspector-filename {
+  min-width: 0;
+  max-width: 100%;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-high);
   font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .inspector-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.4rem;
   background: var(--bg-canvas);
   border: 1px solid var(--border-subtle);
@@ -1629,6 +1665,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ins-k {
@@ -1639,10 +1677,14 @@ details[open] > .context-summary .chevron {
 }
 
 .ins-v {
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-medium);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Evidence Candidates List in Inspector */
@@ -1650,6 +1692,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .evidence-vertical-list {
@@ -1657,6 +1701,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Individual Citation Card */
@@ -1668,6 +1714,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
   cursor: pointer;
   transition: all var(--transition);
 }
@@ -1688,6 +1736,8 @@ details[open] > .context-summary .chevron {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .citation-label-badge {
@@ -1717,12 +1767,13 @@ details[open] > .context-summary .chevron {
 .type-equation { background: var(--type-equation-bg); color: var(--type-equation-fg); }
 
 .citation-source {
+  min-width: 0;
+  max-width: 100%;
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-high);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .citation-page-badge {

@@ -42,8 +42,11 @@ DEFAULT_OUTPUT_JSON: Path = Path("data/evaluation/baseline_retrieval_results.jso
 DEFAULT_TOP_K: int = 5
 
 
-def build_sample_paper_document(pdf_path: Union[str, Path] = DEFAULT_PDF_PATH) -> MultimodalDocument:
-    """Parses and assembles the multimodal document from the sample paper PDF."""
+def build_document(
+    pdf_path: Union[str, Path],
+    document_id: Optional[str] = None,
+) -> MultimodalDocument:
+    """Parses and assembles one PDF into a multimodal document."""
     path = Path(pdf_path)
     if not path.is_file():
         raise FileNotFoundError(f"PDF file not found: {path}")
@@ -67,7 +70,16 @@ def build_sample_paper_document(pdf_path: Union[str, Path] = DEFAULT_PDF_PATH) -
         equations=equations,
         caption_matches=caption_res.matches,
         source_filename=path.name,
+        document_id=document_id,
     )
+
+
+def build_sample_paper_document(
+    pdf_path: Union[str, Path] = DEFAULT_PDF_PATH,
+    document_id: Optional[str] = None,
+) -> MultimodalDocument:
+    """Backward-compatible wrapper for the canonical sample-paper workflow."""
+    return build_document(pdf_path, document_id=document_id)
 
 
 def format_content_preview(content: Any, max_len: int = 80) -> str:

@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from app.evaluation.evaluate_retrieval import (
+    build_document,
     build_sample_paper_document,
     format_content_preview,
     format_question_results,
@@ -101,6 +102,7 @@ __all__ = [
     "RetrievalEvaluationRunner",
     "create_evaluation_pipeline",
     "build_sample_paper_document",
+    "build_document",
     "format_content_preview",
     "format_question_results",
     "run_retrieval_baseline",

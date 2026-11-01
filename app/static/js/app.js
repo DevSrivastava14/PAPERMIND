@@ -19,6 +19,7 @@
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
   currentPdf: /** @type {string|null} */ (null),
+  currentDocumentId: /** @type {string|null} */ (null),
   isLoading: false,
   lastRequestId: /** @type {string|null} */ (null),
   lastResult: /** @type {object|null} */ (null),
@@ -48,6 +49,7 @@ const dom = {
   loadPaperBtn:      $("load-paper-btn"),
   activePaperBox:    $("active-paper-display"),
   activePaperName:   $("active-paper-name"),
+  activePaperStatus: $("active-paper-status"),
   presetList:        $("preset-list"),
   uploadInput:       $("pdf-upload-input"),
   uploadStatus:      $("upload-status"),
@@ -188,19 +190,55 @@ function selectPaper(filename) {
   }
 
   state.currentPdf = cleanName;
-
-  if (dom.pdfInput) dom.pdfInput.value = cleanName;
-  if (dom.activePaperName) dom.activePaperName.textContent = cleanName;
-  if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
-
-  // Highlight active item in document list
-  document.querySelectorAll(".doc-item-btn").forEach((btn) => {
-    const btnFile = btn.getAttribute("data-filename");
-    const isMatch = btnFile === cleanName || btnFile === cleanName.replace(/^data[\/\\]/, "");
-    btn.classList.toggle("active", isMatch);
+  state.currentDocumentId = null;
+  updateActiveDocumentDisplay({
+    filename: cleanName,
+    status: "ready",
   });
 
+  if (dom.pdfInput) dom.pdfInput.value = cleanName;
+  if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
+
+  updateDocumentSelectionVisuals();
+
   updateSubmitState();
+}
+
+function formatDocumentStatus(status) {
+  switch (status) {
+    case "ready":
+      return "Grounded multi-modal indexing ready";
+    case "processing":
+      return "Processing document…";
+    case "failed":
+      return "Document ingestion failed";
+    case "uploaded":
+    default:
+      return "Uploaded · ready for processing";
+  }
+}
+
+function updateActiveDocumentDisplay(documentInfo) {
+  const filename = documentInfo?.filename || "Uploaded PDF";
+  const status = documentInfo?.status || "uploaded";
+  if (dom.activePaperName) dom.activePaperName.textContent = filename;
+  if (dom.activePaperStatus) {
+    dom.activePaperStatus.textContent = formatDocumentStatus(status);
+    dom.activePaperStatus.dataset.status = status;
+  }
+}
+
+function updateDocumentSelectionVisuals() {
+  document.querySelectorAll(".doc-item-btn").forEach((btn) => {
+    const isUploaded = Boolean(btn.dataset.documentId);
+    const isSelected = isUploaded
+      ? btn.dataset.documentId === state.currentDocumentId
+      : !state.currentDocumentId &&
+        (btn.dataset.filename === state.currentPdf ||
+          btn.dataset.filename === state.currentPdf?.replace(/^data[\/\\]/, ""));
+    btn.classList.toggle("active", isSelected);
+    btn.setAttribute("aria-current", isSelected ? "true" : "false");
+  });
 }
 
 function renderUploadedDocuments(documents) {
@@ -209,7 +247,14 @@ function renderUploadedDocuments(documents) {
   documents.forEach((uploadedDocument) => {
     const item = document.createElement("div");
     item.className = "doc-item-btn uploaded-doc-item";
-    item.setAttribute("role", "listitem");
+    item.dataset.documentId = uploadedDocument.document_id || "";
+    item.dataset.filename = uploadedDocument.filename || "";
+    item.dataset.status = uploadedDocument.status || "uploaded";
+    item.setAttribute("role", "button");
+    item.setAttribute("tabindex", "0");
+
+    const icon = document.querySelector(".doc-item-icon")?.cloneNode(true);
+    if (icon) item.appendChild(icon);
 
     const info = document.createElement("div");
     info.className = "doc-item-info";
@@ -218,11 +263,31 @@ function renderUploadedDocuments(documents) {
     name.textContent = uploadedDocument.filename || "Uploaded PDF";
     const status = document.createElement("span");
     status.className = "doc-item-type";
-    status.textContent = `Uploaded · ${uploadedDocument.status || "uploaded"} · available for processing`;
+    status.textContent = formatDocumentStatus(uploadedDocument.status);
     info.append(name, status);
+    item.addEventListener("click", (event) => {
+      event?.stopPropagation?.();
+      state.currentDocumentId = uploadedDocument.document_id || null;
+      state.currentPdf = uploadedDocument.filename || null;
+      updateActiveDocumentDisplay(uploadedDocument);
+      if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
+      updateDocumentSelectionVisuals();
+      updateSubmitState();
+    });
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        item.click();
+      }
+    });
     item.appendChild(info);
     dom.presetList.appendChild(item);
   });
+  const selectedDocument = documents.find(
+    (documentInfo) => documentInfo.document_id === state.currentDocumentId,
+  );
+  if (selectedDocument) updateActiveDocumentDisplay(selectedDocument);
+  updateDocumentSelectionVisuals();
 }
 
 async function loadUploadedDocuments() {
@@ -376,7 +441,15 @@ async function submitQuery() {
   }, 2200);
 
   let requestId = null;
-  const payloadPdfPath = getResolvedPdfPath(state.currentPdf);
+  const payload = {
+    query: query,
+    top_k: safeTopK,
+  };
+  if (state.currentDocumentId) {
+    payload.document_id = state.currentDocumentId;
+  } else {
+    payload.pdf_path = getResolvedPdfPath(state.currentPdf);
+  }
 
   try {
     const response = await fetch("/query", {
@@ -384,11 +457,7 @@ async function submitQuery() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        pdf_path: payloadPdfPath,
-        query: query,
-        top_k: safeTopK,
-      }),
+      body: JSON.stringify(payload),
     });
 
     // Capture X-Request-ID response header
@@ -417,6 +486,7 @@ async function submitQuery() {
     state.lastRequestId = requestId;
     state.citations = Array.isArray(data.citations) ? data.citations : [];
     renderResult(data, requestId);
+    if (state.currentDocumentId) await loadUploadedDocuments();
 
   } catch (err) {
     clearInterval(stageTimer);

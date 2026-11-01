@@ -49,10 +49,12 @@ class MultimodalDocument:
         self,
         elements: Optional[Sequence[MultimodalElement]] = None,
         source_filename: Optional[str] = None,
+        document_id: Optional[str] = None,
     ) -> None:
         self.elements: List[MultimodalElement] = []
         self._by_id: Dict[str, MultimodalElement] = {}
         self.source_filename = source_filename
+        self.document_id = document_id
 
         if elements:
             for el in elements:
@@ -194,6 +196,7 @@ class MultimodalDocument:
         """Serializes the document collection structure to a dictionary."""
         return {
             "source_filename": self.source_filename,
+            "document_id": self.document_id,
             "element_count": len(self.elements),
             "element_ids": self.element_ids,
             "elements": [el.to_dict() for el in self.elements],
@@ -221,6 +224,7 @@ def assemble_multimodal_document(
     equations: Optional[Sequence[ExtractedEquation]] = None,
     caption_matches: Optional[Sequence[CaptionMatch]] = None,
     source_filename: Optional[str] = None,
+    document_id: Optional[str] = None,
 ) -> MultimodalDocument:
     """Assembles heterogeneous extracted scientific paper elements into a unified MultimodalDocument.
 
@@ -261,6 +265,7 @@ def assemble_multimodal_document(
     return MultimodalDocument(
         elements=elements,
         source_filename=source_filename,
+        document_id=document_id,
     )
 
 

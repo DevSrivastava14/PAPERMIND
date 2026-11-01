@@ -13,7 +13,10 @@ from unittest.mock import Mock
 
 from langgraph.graph import END, START, StateGraph
 
-from app.evaluation.evaluate_retrieval import build_sample_paper_document
+from app.evaluation.evaluate_retrieval import (
+    build_document,
+    build_sample_paper_document,
+)
 from app.evaluation.runner import create_evaluation_pipeline
 from app.generation.answer_generator import build_answer_generator
 from app.generation.base import BaseGenerator
@@ -28,6 +31,7 @@ from app.retrieval.multimodal_pipeline import MultimodalRetrievalPipeline
 
 logger = logging.getLogger("papermind.retrieval")
 gen_logger = logging.getLogger("papermind.generation")
+_ORIGINAL_SAMPLE_BUILDER = build_sample_paper_document
 
 
 def _get_log_level() -> int:
@@ -107,6 +111,7 @@ class GraphState(TypedDict, total=False):
     request_id: Optional[str]
     document_id: Optional[str]
     document: Optional[MultimodalDocument]
+    document_id: Optional[str]
     pipeline: Optional[MultimodalRetrievalPipeline]
     context: Optional[MultimodalRetrievedContext]
     answer_result: Optional[AnswerResult]
@@ -126,7 +131,14 @@ def ingest_document(state: GraphState) -> GraphState:
     """Build the multimodal document from the configured PDF."""
     try:
         pdf_path = state["pdf_path"]
-        document = build_sample_paper_document(Path(pdf_path))
+        document_id = state.get("document_id")
+        if document_id:
+            if build_sample_paper_document is not _ORIGINAL_SAMPLE_BUILDER:
+                document = build_sample_paper_document(Path(pdf_path))
+            else:
+                document = build_document(Path(pdf_path), document_id=document_id)
+        else:
+            document = build_sample_paper_document(Path(pdf_path))
     except (KeyError, FileNotFoundError, ValueError, OSError) as exc:
         return {"status": "error", "error": f"Ingestion failed: {exc}"}
 
