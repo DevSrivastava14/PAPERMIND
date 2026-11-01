@@ -138,11 +138,40 @@ class MultimodalRetrievalPipeline:
                         related_element_ids=list(
                             related_element.related_element_ids
                         ),
+                        retrieval_score=result.retrieval_score,
+                        cross_encoder_score=result.cross_encoder_score,
+                        clip_score=result.clip_score,
+                        final_score=result.final_score,
+                        raw_cross_encoder_score=result.raw_cross_encoder_score,
+                        raw_clip_score=result.raw_clip_score,
+                        dense_score=result.dense_score,
+                        dense_rank=None,
+                        bm25_score=result.bm25_score,
+                        bm25_rank=None,
+                        rrf_score=result.rrf_score,
+                        rrf_rank=None,
+                        rrf_dense_contribution=result.rrf_dense_contribution,
+                        rrf_bm25_contribution=result.rrf_bm25_contribution,
+                        final_rank=None,
                     )
                 )
                 seen_ids.add(related_element.element_id)
 
         return expanded
+
+    @staticmethod
+    def _mark_stage_results(
+        results: List[MultimodalSearchResult],
+        stage: str,
+    ) -> None:
+        """Preserve direct dense/BM25 score and rank before later fusion."""
+        for rank, result in enumerate(results, start=1):
+            if stage == "dense":
+                result.dense_score = result.score
+                result.dense_rank = rank
+            elif stage == "bm25":
+                result.bm25_score = result.score
+                result.bm25_rank = rank
 
     def retrieve_text(
         self,
@@ -167,6 +196,7 @@ class MultimodalRetrievalPipeline:
                 top_k=effective_k,
                 embedder=self.text_embedder,
             )
+            self._mark_stage_results(results, "dense")
             return self._expand_related_results(results)
 
         if isinstance(query, np.ndarray):
@@ -174,6 +204,7 @@ class MultimodalRetrievalPipeline:
                 query_vector=query,
                 top_k=effective_k,
             )
+            self._mark_stage_results(results, "dense")
             return self._expand_related_results(results)
 
         raise TypeError(
@@ -249,6 +280,7 @@ class MultimodalRetrievalPipeline:
             return []
 
         results = self.bm25_index.search(query=query, top_k=effective_k)
+        self._mark_stage_results(results, "bm25")
         return self._expand_related_results(results)
 
     def hybrid_retrieve_text(
@@ -418,6 +450,8 @@ class MultimodalRetrievalPipeline:
             candidates=rrf_candidates,
             top_k=effective_top_k,
         )
+        for rank, result in enumerate(reranked_results, start=1):
+            result.final_rank = rank
 
         return (reranked_results, candidate_count) if return_candidate_count else reranked_results
 
@@ -587,4 +621,3 @@ def build_multimodal_pipeline(
         bm25_index=bm25_index,
         reranker=reranker,
     )
-

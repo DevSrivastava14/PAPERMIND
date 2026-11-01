@@ -116,6 +116,14 @@ class TestRRFRankContribution:
         assert pytest.approx(fused[0].score, rel=1e-6) == expected_score_b
         assert pytest.approx(fused[1].score, rel=1e-6) == expected_score_a
         assert pytest.approx(fused[2].score, rel=1e-6) == expected_score_c
+        assert fused[0].dense_score == 0.8
+        assert fused[0].dense_rank == 2
+        assert fused[0].bm25_score == 12.5
+        assert fused[0].bm25_rank == 1
+        assert fused[0].rrf_score == pytest.approx(expected_score_b)
+        assert fused[0].rrf_rank == 1
+        assert fused[0].rrf_dense_contribution == pytest.approx(1.0 / 62.0)
+        assert fused[0].rrf_bm25_contribution == pytest.approx(1.0 / 61.0)
 
 
 # ===========================================================================

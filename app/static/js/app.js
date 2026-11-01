@@ -96,6 +96,8 @@ const dom = {
   insCaption:        $("ins-caption"),
   insAssociatedBlock:$("ins-associated-block"),
   insAssociated:     $("ins-associated"),
+  insDiagnostics:    $("ins-diagnostics"),
+  insDiagnosticsGrid:$("ins-diagnostics-grid"),
 
   // Footer
   footerRequestId:   $("footer-request-id"),
@@ -767,6 +769,38 @@ function inspectCitation(c) {
   if (dom.insCaption) dom.insCaption.textContent = c.caption || "";
   if (dom.insAssociated) dom.insAssociated.textContent = c.associated_text || "";
 
+  const diagnostics = c.diagnostics;
+  if (dom.insDiagnostics && dom.insDiagnosticsGrid) {
+    dom.insDiagnosticsGrid.innerHTML = "";
+    const diagnosticEntries = diagnostics ? [
+      ["Dense", diagnostics.dense_score != null
+        ? `${Number(diagnostics.dense_score).toFixed(3)} · rank ${diagnostics.dense_rank ?? "—"}`
+        : "Not retrieved"],
+      ["BM25", diagnostics.bm25_score != null
+        ? `${Number(diagnostics.bm25_score).toFixed(3)} · rank ${diagnostics.bm25_rank ?? "—"}`
+        : "Not retrieved"],
+      ["RRF", diagnostics.rrf_score != null
+        ? `${Number(diagnostics.rrf_score).toFixed(5)} · rank ${diagnostics.rrf_rank ?? "—"}`
+        : "Unavailable"],
+      ["RRF contribution", diagnostics.rrf_dense_contribution != null || diagnostics.rrf_bm25_contribution != null
+        ? `dense ${diagnostics.rrf_dense_contribution != null ? Number(diagnostics.rrf_dense_contribution).toFixed(5) : "—"} · BM25 ${diagnostics.rrf_bm25_contribution != null ? Number(diagnostics.rrf_bm25_contribution).toFixed(5) : "—"}`
+        : "Unavailable"],
+      ["CrossEncoder", diagnostics.cross_encoder_score != null ? Number(diagnostics.cross_encoder_score).toFixed(3) : "Unavailable"],
+      ["CLIP", diagnostics.clip_score != null ? Number(diagnostics.clip_score).toFixed(3) : "Unavailable"],
+      ["Final", diagnostics.final_score != null
+        ? `${Number(diagnostics.final_score).toFixed(3)} · rank ${diagnostics.final_rank ?? "—"}`
+        : `rank ${diagnostics.final_rank ?? "—"}`],
+    ] : [];
+    diagnosticEntries.forEach(([label, value]) => {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      dom.insDiagnosticsGrid.append(dt, dd);
+    });
+    dom.insDiagnostics.classList.toggle("hidden", diagnosticEntries.length === 0);
+  }
+
   if (!isImage || !dom.insImage || !dom.insImageStatus) return;
   dom.insImage.removeAttribute("src");
   dom.insImage.alt = `Retrieved figure from ${c.source_filename || "source document"}`;
@@ -792,6 +826,13 @@ function renderTechDetails(data, requestId) {
   if (data.citations?.length) entries.push(["Retrieved Candidates", data.citations.length]);
   if (data.insufficient_evidence !== undefined) {
     entries.push(["Evidence Sufficiency", data.insufficient_evidence ? "Refusal (Insufficient)" : "Verified"]);
+  }
+  const retrieval = data.retrieval_diagnostics;
+  if (retrieval?.candidate_count != null) entries.push(["Rerank Candidates", retrieval.candidate_count]);
+  if (retrieval?.result_count != null) entries.push(["Final Results", retrieval.result_count]);
+  if (retrieval?.reranker) entries.push(["Active Reranker", retrieval.reranker]);
+  if (retrieval?.retrieval_latency_ms != null) {
+    entries.push(["Retrieval Latency", `${Number(retrieval.retrieval_latency_ms).toFixed(1)} ms`]);
   }
 
   if (entries.length === 0) {

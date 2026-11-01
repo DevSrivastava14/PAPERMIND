@@ -129,13 +129,81 @@ def test_query_keeps_text_citations_without_visual_metadata() -> None:
         )
 
     assert response.status_code == 200
-    assert response.json()["citations"][0] == {
+    citation_payload = response.json()["citations"][0]
+    assert citation_payload == {
         "citation_label": "[1]",
         "element_id": text.element_id,
         "element_type": "text",
         "source_filename": "paper.pdf",
         "page_number": 1,
         "score": 0.7,
+        "diagnostics": {"final_rank": 1},
+    }
+
+
+def test_query_serializes_available_retrieval_diagnostics() -> None:
+    text = MultimodalElement(
+        element_id="paper.pdf#chunk_0",
+        element_type=ElementType.TEXT,
+        source_filename="paper.pdf",
+        page_number=1,
+        content="Text evidence.",
+    )
+    result = MultimodalSearchResult(
+        element=text,
+        score=0.88,
+        dense_score=0.91,
+        dense_rank=2,
+        bm25_score=4.2,
+        bm25_rank=1,
+        rrf_score=0.031,
+        rrf_rank=1,
+        rrf_dense_contribution=1 / 62,
+        rrf_bm25_contribution=1 / 61,
+        cross_encoder_score=0.88,
+        final_score=0.88,
+        final_rank=1,
+    )
+    citation = MultimodalCitation(
+        citation_label="[1]",
+        element_id=text.element_id,
+        element_type=ElementType.TEXT,
+        source_filename=text.source_filename,
+        page_number=text.page_number,
+        score=0.88,
+    )
+    context = MultimodalRetrievedContext(
+        formatted_context="Text evidence.",
+        citations=[citation],
+        search_results=[result],
+        candidate_count=4,
+    )
+
+    with patch(
+        "app.api.main.graph.invoke",
+        return_value={
+            "status": "success",
+            "context": context,
+            "candidate_count": 4,
+            "retrieval_latency_ms": 12.5,
+        },
+    ):
+        response = client.post(
+            "/query",
+            json={"pdf_path": "data/sample_paper.pdf", "query": "What does it say?"},
+        )
+
+    payload = response.json()
+    diagnostics = payload["citations"][0]["diagnostics"]
+    assert diagnostics["dense_rank"] == 2
+    assert diagnostics["bm25_score"] == 4.2
+    assert diagnostics["rrf_dense_contribution"] == pytest.approx(1 / 62)
+    assert diagnostics["cross_encoder_score"] == 0.88
+    assert diagnostics["final_rank"] == 1
+    assert payload["retrieval_diagnostics"] == {
+        "candidate_count": 4,
+        "result_count": 1,
+        "retrieval_latency_ms": 12.5,
     }
 
 

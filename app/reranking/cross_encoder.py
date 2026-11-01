@@ -261,6 +261,19 @@ class CrossEncoderReranker(BaseReranker):
                     source_filename=orig.source_filename,
                     page_number=orig.page_number,
                     related_element_ids=list(orig.related_element_ids or []),
+                    retrieval_score=orig.retrieval_score
+                    if orig.retrieval_score is not None
+                    else orig.score,
+                    cross_encoder_score=float(new_score),
+                    final_score=float(new_score),
+                    dense_score=orig.dense_score,
+                    dense_rank=orig.dense_rank,
+                    bm25_score=orig.bm25_score,
+                    bm25_rank=orig.bm25_rank,
+                    rrf_score=orig.rrf_score,
+                    rrf_rank=orig.rrf_rank,
+                    rrf_dense_contribution=orig.rrf_dense_contribution,
+                    rrf_bm25_contribution=orig.rrf_bm25_contribution,
                 )
             )
 

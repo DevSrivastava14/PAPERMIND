@@ -1452,6 +1452,29 @@ details[open] > .context-summary .chevron {
   overflow-wrap: anywhere;
 }
 
+.inspector-diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.inspector-diagnostics dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 0.5rem;
+}
+
+.inspector-diagnostics dt,
+.inspector-diagnostics dd {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+}
+
+.inspector-diagnostics dt { color: var(--text-muted); }
+.inspector-diagnostics dd { color: var(--text-medium); text-align: right; }
+
 .inspector-top-row {
   display: flex;
   align-items: center;

@@ -135,6 +135,23 @@ class QueryRequest(BaseModel):
         return value
 
 
+class RetrievalDiagnosticsResponse(BaseModel):
+    """Optional retrieval-stage values preserved for one evidence item."""
+
+    dense_score: float | None = None
+    dense_rank: int | None = None
+    bm25_score: float | None = None
+    bm25_rank: int | None = None
+    rrf_score: float | None = None
+    rrf_rank: int | None = None
+    rrf_dense_contribution: float | None = None
+    rrf_bm25_contribution: float | None = None
+    cross_encoder_score: float | None = None
+    clip_score: float | None = None
+    final_score: float | None = None
+    final_rank: int | None = None
+
+
 class CitationResponse(BaseModel):
     """Public representation of a multimodal context citation."""
 
@@ -148,6 +165,16 @@ class CitationResponse(BaseModel):
     caption: str | None = None
     related_element_ids: list[str] | None = None
     associated_text: str | None = None
+    diagnostics: RetrievalDiagnosticsResponse | None = None
+
+
+class RetrievalRunDiagnosticsResponse(BaseModel):
+    """Optional retrieval-run values available to the technical drawer."""
+
+    candidate_count: int | None = None
+    result_count: int | None = None
+    reranker: str | None = None
+    retrieval_latency_ms: float | None = None
 
 
 class QueryResponse(BaseModel):
@@ -159,6 +186,7 @@ class QueryResponse(BaseModel):
     error: str | None = None
     answer: str | None = None
     insufficient_evidence: bool | None = None
+    retrieval_diagnostics: RetrievalRunDiagnosticsResponse | None = None
 
 
 app = FastAPI(title="PaperMind API")
@@ -287,6 +315,7 @@ def _citation_metadata(
     if element.element_type != ElementType.IMAGE:
         return metadata
 
+
     caption, associated_text = _related_evidence(element, document)
     image_url = _image_data_url(element)
     if image_url is not None:
@@ -296,6 +325,33 @@ def _citation_metadata(
     if associated_text is not None:
         metadata["associated_text"] = associated_text
     return metadata
+
+
+def _result_diagnostics(
+    result: object | None,
+    final_rank: int,
+) -> RetrievalDiagnosticsResponse | None:
+    if result is None:
+        return None
+    names = (
+        "dense_score",
+        "dense_rank",
+        "bm25_score",
+        "bm25_rank",
+        "rrf_score",
+        "rrf_rank",
+        "rrf_dense_contribution",
+        "rrf_bm25_contribution",
+        "cross_encoder_score",
+        "clip_score",
+        "final_score",
+    )
+    values = {name: getattr(result, name, None) for name in names}
+    values["final_rank"] = getattr(result, "final_rank", None) or final_rank
+    values = {name: value for name, value in values.items() if value is not None}
+    if not values:
+        return None
+    return RetrievalDiagnosticsResponse(**values)
 
 
 @app.get("/health")
@@ -402,19 +458,30 @@ def query_papermind(
         )
 
     document = state.get("document")
+    search_results = getattr(context, "search_results", None) or []
     citations = []
-    for citation in context.citations:
-        citations.append(
-            CitationResponse(
-                citation_label=citation.citation_label,
-                element_id=citation.element_id,
-                element_type=citation.element_type.value,
-                source_filename=citation.source_filename,
-                page_number=citation.page_number,
-                score=citation.score,
-                **_citation_metadata(citation, context, document),
-            )
+    for final_rank, citation in enumerate(context.citations, start=1):
+        result = next(
+            (
+                candidate
+                for candidate in search_results
+                if getattr(candidate, "element_id", None) == citation.element_id
+            ),
+            None,
         )
+        citation_kwargs = {
+            "citation_label": citation.citation_label,
+            "element_id": citation.element_id,
+            "element_type": citation.element_type.value,
+            "source_filename": citation.source_filename,
+            "page_number": citation.page_number,
+            "score": citation.score,
+            **_citation_metadata(citation, context, document),
+        }
+        diagnostics = _result_diagnostics(result, final_rank)
+        if diagnostics is not None:
+            citation_kwargs["diagnostics"] = diagnostics
+        citations.append(CitationResponse(**citation_kwargs))
 
     top_results = [
         {
@@ -469,6 +536,19 @@ def query_papermind(
         "citations": citations,
         "error": None,
     }
+    if any(
+        value is not None
+        for value in (candidate_count, reranker_name, state.get("retrieval_latency_ms"))
+    ):
+        run_values = {
+            "candidate_count": candidate_count,
+            "result_count": result_count,
+            "reranker": reranker_name,
+            "retrieval_latency_ms": state.get("retrieval_latency_ms"),
+        }
+        kwargs["retrieval_diagnostics"] = RetrievalRunDiagnosticsResponse(
+            **{name: value for name, value in run_values.items() if value is not None}
+        )
     if answer is not None:
         kwargs["answer"] = answer
     if insufficient_evidence is not None:

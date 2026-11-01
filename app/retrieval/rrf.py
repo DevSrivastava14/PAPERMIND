@@ -93,8 +93,14 @@ class ReciprocalRankFusion:
         # Accumulate RRF scores and record first encountered result object for provenance
         rrf_scores: Dict[str, float] = {}
         provenance_by_id: Dict[str, MultimodalSearchResult] = {}
+        dense_contributions: Dict[str, float] = {}
+        sparse_contributions: Dict[str, float] = {}
+        dense_scores: Dict[str, float] = {}
+        dense_ranks: Dict[str, int] = {}
+        sparse_scores: Dict[str, float] = {}
+        sparse_ranks: Dict[str, int] = {}
 
-        for r_list in ranked_lists:
+        for list_idx, r_list in enumerate(ranked_lists):
             # Deduplicate within the same ranked list (keep best/first rank)
             seen_in_list = set()
             for rank_0, result in enumerate(r_list):
@@ -108,6 +114,14 @@ class ReciprocalRankFusion:
                 contribution = 1.0 / (self.k + rank_1)
 
                 rrf_scores[elem_id] = rrf_scores.get(elem_id, 0.0) + contribution
+                if list_idx == 0:
+                    dense_contributions[elem_id] = contribution
+                    dense_scores[elem_id] = float(result.score)
+                    dense_ranks[elem_id] = rank_1
+                elif list_idx == 1:
+                    sparse_contributions[elem_id] = contribution
+                    sparse_scores[elem_id] = float(result.score)
+                    sparse_ranks[elem_id] = rank_1
 
                 if elem_id not in provenance_by_id:
                     provenance_by_id[elem_id] = result
@@ -125,7 +139,7 @@ class ReciprocalRankFusion:
             sorted_ids = sorted_ids[:top_k]
 
         fused_results: List[MultimodalSearchResult] = []
-        for eid in sorted_ids:
+        for rank, eid in enumerate(sorted_ids, start=1):
             orig = provenance_by_id[eid]
             fused_results.append(
                 MultimodalSearchResult(
@@ -136,6 +150,14 @@ class ReciprocalRankFusion:
                     source_filename=orig.source_filename,
                     page_number=orig.page_number,
                     related_element_ids=list(orig.related_element_ids or []),
+                    dense_score=dense_scores.get(eid, orig.dense_score),
+                    dense_rank=dense_ranks.get(eid, orig.dense_rank),
+                    bm25_score=sparse_scores.get(eid, orig.bm25_score),
+                    bm25_rank=sparse_ranks.get(eid, orig.bm25_rank),
+                    rrf_score=float(rrf_scores[eid]),
+                    rrf_rank=rank,
+                    rrf_dense_contribution=dense_contributions.get(eid),
+                    rrf_bm25_contribution=sparse_contributions.get(eid),
                 )
             )
 

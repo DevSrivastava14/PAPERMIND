@@ -188,6 +188,14 @@ class MultimodalReranker(BaseReranker):
                     final_score=float(final_score),
                     raw_cross_encoder_score=raw_text_scores_by_index.get(index),
                     raw_clip_score=raw_clip_scores_by_index.get(index),
+                    dense_score=original.dense_score,
+                    dense_rank=original.dense_rank,
+                    bm25_score=original.bm25_score,
+                    bm25_rank=original.bm25_rank,
+                    rrf_score=original.rrf_score,
+                    rrf_rank=original.rrf_rank,
+                    rrf_dense_contribution=original.rrf_dense_contribution,
+                    rrf_bm25_contribution=original.rrf_bm25_contribution,
                 )
             )
 

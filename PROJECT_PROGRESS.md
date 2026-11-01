@@ -1805,3 +1805,11 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
 - Added focused API coverage for image metadata, caption relationships, missing assets, and unchanged text citations.
 - Validation: `.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **20 passed**; `node --check app\static\js\app.js` passed; Pylance reported no syntax errors.
 - Browser fixture verification confirmed image preview, caption/text display, text evidence switching, and missing-image fallback.
+
+### Day 32.6 — Retrieval Diagnostics
+- Preserved available dense, BM25, RRF, CrossEncoder, CLIP, final-score, and final-rank metadata at existing retrieval boundaries without changing retrieval ordering or model execution.
+- Extended `/query` with optional per-citation diagnostics and per-run candidate/result metadata; unavailable values are omitted rather than represented as zero.
+- Added compact diagnostics rendering to the Evidence Inspector and technical details drawer while preserving Task 32.4 citation and XSS protections and Task 32.5 image evidence behavior.
+- Added focused RRF and API assertions for single-stream, overlapping-stream, optional serialization, contribution preservation, and final ranking.
+- Validation: focused retrieval/orchestration/reranker/API suite — **93 passed**; `node --check app\static\js\app.js` passed; Pylance syntax checks passed.
+- `tests\test_multimodal_sparse_retrieval.py` currently reports 4 pre-existing behavior failures related to result expansion/top-k and image filtering; diagnostics changes only annotate returned results and do not alter those retrieval paths.

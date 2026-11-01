@@ -38,6 +38,15 @@ class MultimodalSearchResult:
     final_score: Optional[float] = None
     raw_cross_encoder_score: Optional[float] = None
     raw_clip_score: Optional[float] = None
+    dense_score: Optional[float] = None
+    dense_rank: Optional[int] = None
+    bm25_score: Optional[float] = None
+    bm25_rank: Optional[int] = None
+    rrf_score: Optional[float] = None
+    rrf_rank: Optional[int] = None
+    rrf_dense_contribution: Optional[float] = None
+    rrf_bm25_contribution: Optional[float] = None
+    final_rank: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.element is None:
