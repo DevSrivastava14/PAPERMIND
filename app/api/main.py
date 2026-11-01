@@ -14,7 +14,8 @@ import uuid
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from app.orchestration.langgraph_graph import GraphState, build_papermind_graph
@@ -156,6 +157,18 @@ class QueryResponse(BaseModel):
 
 app = FastAPI(title="PaperMind API")
 graph = build_papermind_graph()
+
+# ── Static files & root route ──────────────────────────────────────────────
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def serve_index() -> FileResponse:
+    """Serve the PaperMind frontend."""
+    return FileResponse(_STATIC_DIR / "index.html")
+
 
 
 @app.middleware("http")
