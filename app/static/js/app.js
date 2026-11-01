@@ -74,6 +74,12 @@ const dom = {
   contextText:       $("context-text"),
   techPanel:         $("tech-panel"),
   techGrid:          $("tech-grid"),
+  evaluationSelect:  $("evaluation-artifact-select"),
+  evaluationLoadBtn: $("evaluation-load-btn"),
+  evaluationStatus:  $("evaluation-status"),
+  evaluationMeta:    $("evaluation-meta"),
+  evaluationSummary: $("evaluation-summary"),
+  evaluationQuestions:$("evaluation-questions"),
 
   // Evidence Inspector (Right)
   citationsPanel:    $("citations-panel"),
@@ -853,6 +859,109 @@ function renderTechDetails(data, requestId) {
   dom.techPanel.classList.remove("hidden");
 }
 
+function addEvaluationText(parent, tag, text, className = "") {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  if (className) node.className = className;
+  parent.appendChild(node);
+  return node;
+}
+
+function formatEvaluationValue(metric) {
+  if (!metric || metric.status === "unavailable") return "Unavailable";
+  if (metric.status === "failed") return metric.error ? `Incomplete: ${metric.error}` : "Incomplete";
+  if (metric.value === null || metric.value === undefined) return "Unavailable";
+  return typeof metric.value === "number" ? metric.value.toFixed(4) : String(metric.value);
+}
+
+function renderEvaluationArtifact(artifact) {
+  const metadata = artifact.metadata || {};
+  dom.evaluationMeta.replaceChildren();
+  dom.evaluationSummary.replaceChildren();
+  dom.evaluationQuestions.replaceChildren();
+
+  addEvaluationText(dom.evaluationMeta, "span", `${artifact.title} · historical`);
+  addEvaluationText(dom.evaluationMeta, "span", artifact.filename);
+  Object.entries(metadata).forEach(([key, value]) => {
+    if (value === null || value === undefined) return;
+    const display = typeof value === "object" ? JSON.stringify(value) : String(value);
+    addEvaluationText(dom.evaluationMeta, "span", `${key}: ${display}`);
+  });
+
+  Object.entries(artifact.summary || {}).forEach(([config, metrics]) => {
+    Object.entries(metrics).forEach(([name, metric]) => {
+      addEvaluationText(dom.evaluationSummary, "dt", `${config} · ${name}`);
+      addEvaluationText(dom.evaluationSummary, "dd", formatEvaluationValue(metric));
+    });
+  });
+
+  (artifact.questions || []).forEach((question) => {
+    const details = document.createElement("details");
+    details.className = "evaluation-question";
+    const summary = document.createElement("summary");
+    summary.textContent = `${question.id || "Question"}${question.query ? ` · ${question.query}` : ""}`;
+    details.appendChild(summary);
+    if (question.status) addEvaluationText(details, "p", `Status: ${question.status}`);
+    Object.entries(question.configurations || {}).forEach(([config, value]) => {
+      const metricText = value && typeof value === "object" && "status" in value
+        ? formatEvaluationValue(value)
+        : Array.isArray(value)
+          ? `${value.length} retrieved items`
+          : typeof value === "object"
+            ? Object.entries(value).map(([key, item]) => {
+              if (key === "retrieved_evidence" && Array.isArray(item)) return `${key}: ${item.length} items`;
+              if (item === null || item === undefined) return `${key}: unavailable`;
+              return `${key}: ${typeof item === "object" ? JSON.stringify(item) : item}`;
+            }).join(" · ")
+            : String(value);
+      addEvaluationText(details, "p", `${config}: ${metricText}`);
+    });
+    dom.evaluationQuestions.appendChild(details);
+  });
+
+  dom.evaluationMeta.classList.remove("hidden");
+  dom.evaluationSummary.classList.toggle("hidden", dom.evaluationSummary.childElementCount === 0);
+  dom.evaluationQuestions.classList.toggle("hidden", dom.evaluationQuestions.childElementCount === 0);
+  dom.evaluationStatus.textContent = artifact.incomplete
+    ? "Historical artifact loaded; some evaluations are incomplete."
+    : "Historical artifact loaded. Values are read-only saved results.";
+}
+
+async function loadEvaluationArtifacts() {
+  if (!dom.evaluationSelect) return;
+  try {
+    const response = await fetch("/evaluation/results");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    payload.artifacts?.forEach((artifact) => {
+      if (!artifact.available) return;
+      const option = document.createElement("option");
+      option.value = artifact.id;
+      option.textContent = artifact.title;
+      dom.evaluationSelect.appendChild(option);
+    });
+  } catch {
+    dom.evaluationStatus.textContent = "Saved evaluation artifacts are unavailable.";
+  }
+}
+
+async function loadSelectedEvaluation() {
+  const artifactId = dom.evaluationSelect?.value;
+  if (!artifactId) {
+    dom.evaluationStatus.textContent = "Select an artifact to inspect saved results.";
+    return;
+  }
+  dom.evaluationStatus.textContent = "Loading saved artifact…";
+  try {
+    const response = await fetch(`/evaluation/results?artifact_id=${encodeURIComponent(artifactId)}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    renderEvaluationArtifact(payload.artifact);
+  } catch {
+    dom.evaluationStatus.textContent = "Unable to load the selected saved artifact.";
+  }
+}
+
 // ── Error View ─────────────────────────────────────────────────────────────
 function renderError(message) {
   if (dom.errorMessage) {
@@ -957,6 +1066,8 @@ function init() {
 
   // Error dismiss button
   dom.errorDismissBtn?.addEventListener("click", dismissError);
+  dom.evaluationLoadBtn?.addEventListener("click", loadSelectedEvaluation);
+  loadEvaluationArtifacts();
 
   // Default initial UI state
   showState(dom.stateEmpty);

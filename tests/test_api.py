@@ -18,6 +18,54 @@ from app.indexing.multimodal_models import MultimodalSearchResult
 client = TestClient(app)
 
 
+def test_evaluation_artifact_listing_is_allowlisted() -> None:
+    response = client.get("/evaluation/results")
+
+    assert response.status_code == 200
+    artifacts = response.json()["artifacts"]
+    assert [item["id"] for item in artifacts] == ["baseline", "day23", "day25", "q1_smoke"]
+    assert all(item["available"] is True for item in artifacts)
+
+
+@pytest.mark.parametrize("artifact_id", ["baseline", "day23", "day25", "q1_smoke"])
+def test_evaluation_artifact_selection_normalizes_saved_files(artifact_id: str) -> None:
+    response = client.get("/evaluation/results", params={"artifact_id": artifact_id})
+
+    assert response.status_code == 200
+    artifact = response.json()["artifact"]
+    assert artifact["id"] == artifact_id
+    assert artifact["historical"] is True
+    assert artifact["filename"].endswith(".json")
+    assert isinstance(artifact["questions"], list)
+
+
+def test_evaluation_artifact_preserves_null_and_zero_states() -> None:
+    response = client.get("/evaluation/results", params={"artifact_id": "day25"})
+
+    assert response.status_code == 200
+    questions = {item["id"]: item for item in response.json()["artifact"]["questions"]}
+    q1 = questions["Q1"]["configurations"]
+    q6 = questions["Q6"]["configurations"]
+    assert q1["faithfulness"]["value"] == 1.0
+    assert q1["faithfulness"]["status"] == "available"
+    assert q6["faithfulness"]["value"] is None
+    assert q6["faithfulness"]["status"] == "failed"
+
+
+def test_evaluation_artifact_rejects_unknown_and_path_like_identifiers() -> None:
+    for artifact_id in ("missing", "..\\baseline_retrieval_results.json", "C:\\secret.json"):
+        response = client.get("/evaluation/results", params={"artifact_id": artifact_id})
+        assert response.status_code == 404
+
+
+def test_evaluation_endpoint_does_not_invoke_evaluation_code() -> None:
+    with patch("app.evaluation.viewer.json.load", wraps=json.load) as load_json:
+        response = client.get("/evaluation/results", params={"artifact_id": "baseline"})
+
+    assert response.status_code == 200
+    load_json.assert_called_once()
+
+
 def _image_context(image: MultimodalElement) -> MultimodalRetrievedContext:
     citation = MultimodalCitation(
         citation_label="[1]",

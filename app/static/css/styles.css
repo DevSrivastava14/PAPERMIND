@@ -1475,6 +1475,100 @@ details[open] > .context-summary .chevron {
 .inspector-diagnostics dt { color: var(--text-muted); }
 .inspector-diagnostics dd { color: var(--text-medium); text-align: right; }
 
+.evaluation-section {
+  margin-top: 0.75rem;
+}
+
+.evaluation-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.evaluation-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.evaluation-select {
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  color: var(--text-medium);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  font: 0.72rem var(--font-mono);
+}
+
+.evaluation-load-btn {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+.evaluation-status {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.evaluation-meta,
+.evaluation-summary,
+.evaluation-question {
+  padding: 0.5rem;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.evaluation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+}
+
+.evaluation-meta span,
+.evaluation-summary dt,
+.evaluation-summary dd,
+.evaluation-question summary,
+.evaluation-question p {
+  font-size: 0.68rem;
+}
+
+.evaluation-meta span,
+.evaluation-summary dt {
+  color: var(--text-muted);
+}
+
+.evaluation-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem 0.5rem;
+}
+
+.evaluation-summary dd {
+  color: var(--text-medium);
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.evaluation-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.evaluation-question summary {
+  cursor: pointer;
+  color: var(--text-medium);
+}
+
+.evaluation-question p {
+  margin: 0.45rem 0 0;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .inspector-top-row {
   display: flex;
   align-items: center;

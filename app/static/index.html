@@ -344,6 +344,33 @@
           </details>
         </section>
 
+        <section class="evaluation-section" aria-label="Saved Evaluation Results">
+          <details class="context-collapsible" id="evaluation-panel">
+            <summary class="context-summary">
+              <div class="summary-left">
+                <svg class="chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>Saved Evaluation Results</span>
+              </div>
+              <span class="summary-hint">Historical artifacts</span>
+            </summary>
+            <div class="context-drawer evaluation-drawer">
+              <div class="evaluation-controls">
+                <label class="ins-k" for="evaluation-artifact-select">Artifact</label>
+                <select id="evaluation-artifact-select" class="evaluation-select">
+                  <option value="">Select saved artifact</option>
+                </select>
+                <button class="btn btn-ghost evaluation-load-btn" id="evaluation-load-btn" type="button">Load</button>
+              </div>
+              <p class="evaluation-status" id="evaluation-status">Select an artifact to inspect saved results.</p>
+              <div class="evaluation-meta hidden" id="evaluation-meta"></div>
+              <div class="evaluation-summary hidden" id="evaluation-summary"></div>
+              <div class="evaluation-questions hidden" id="evaluation-questions"></div>
+            </div>
+          </details>
+        </section>
+
       </div>
     </main>
 

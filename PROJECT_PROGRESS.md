@@ -1813,3 +1813,12 @@ Build a polished, portfolio-grade interactive web interface connected to the liv
 - Added focused RRF and API assertions for single-stream, overlapping-stream, optional serialization, contribution preservation, and final ranking.
 - Validation: focused retrieval/orchestration/reranker/API suite — **93 passed**; `node --check app\static\js\app.js` passed; Pylance syntax checks passed.
 - `tests\test_multimodal_sparse_retrieval.py` currently reports 4 pre-existing behavior failures related to result expansion/top-k and image filtering; diagnostics changes only annotate returned results and do not alter those retrieval paths.
+
+### Day 32.7 — Saved Evaluation Results Viewer
+- Added a read-only `GET /evaluation/results` endpoint with a fixed registry for `baseline`, `day23`, `day25`, and `q1_smoke` artifacts.
+- Added artifact-specific JSON adapters in `app/evaluation/viewer.py`; historical retrieval, lightweight checkpoint, DeepEval, null/failure, and incomplete states remain distinguishable without running evaluation code.
+- Added a collapsed central-workspace Saved Evaluation Results viewer with on-demand artifact loading, metadata, compact metric summaries, and expandable per-question details using safe DOM text rendering.
+- Added API coverage for listing, selecting all four saved artifacts, null versus available DeepEval values, unknown/path-like identifiers, and read-only JSON loading.
+- Validation: `.\.venv\Scripts\python.exe -m pytest tests\test_api.py -q` — **29 passed**; evaluation regression suite — **48 passed, 2 unrelated model deprecation warnings**; `node --check app\static\js\app.js` passed; `git diff --check` passed.
+- Browser verification loaded the saved baseline artifact through `GET /evaluation/results?artifact_id=baseline`; metadata, computed retrieval summaries, and all eight expandable questions rendered in the central workspace.
+- No evaluation, model inference, or Groq call was run; original artifacts were not modified and no commit was created.

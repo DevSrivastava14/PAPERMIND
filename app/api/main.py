@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.multimodal.representation import ElementType, MultimodalElement
 from app.orchestration.langgraph_graph import GraphState, build_papermind_graph
+from app.evaluation.viewer import list_artifacts, load_artifact
 
 logger = logging.getLogger("papermind.api")
 
@@ -358,6 +359,23 @@ def _result_diagnostics(
 def health() -> dict[str, str]:
     """Lightweight health check endpoint returning API health status."""
     return {"status": "healthy"}
+
+
+@app.get("/evaluation/results")
+def evaluation_results(
+    artifact_id: str | None = Query(default=None, min_length=1),
+) -> dict:
+    """Lists or reads one fixed, persisted evaluation artifact."""
+    if artifact_id is None:
+        return {"artifacts": list_artifacts()}
+    try:
+        return {"artifact": load_artifact(artifact_id)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown evaluation artifact")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Evaluation artifact is unavailable")
+    except (OSError, ValueError, json.JSONDecodeError):
+        raise HTTPException(status_code=500, detail="Saved evaluation artifact is invalid")
 
 
 @app.post("/query", response_model=QueryResponse, response_model_exclude_unset=True)
