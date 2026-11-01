@@ -1154,6 +1154,38 @@ body {
   word-break: break-word;
 }
 
+.inline-citation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(79, 138, 255, 0.16);
+  border: 1px solid rgba(79, 138, 255, 0.35);
+  color: #60a5fa;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  margin: 0 0.15rem;
+  line-height: 1.35;
+  vertical-align: baseline;
+  cursor: pointer;
+  transition: all 150ms ease;
+  user-select: none;
+}
+
+.inline-citation:hover {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(79, 138, 255, 0.4);
+}
+
+.inline-citation:active {
+  transform: translateY(0);
+}
+
 /* Raw Context Collapsible */
 .context-collapsible {
   background: var(--surface-raised);

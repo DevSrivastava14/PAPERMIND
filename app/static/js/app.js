@@ -1,9 +1,18 @@
 /**
  * PaperMind — Three-Panel Research Workspace Script
  *
- * Controls Document Library (Left), Research Workspace (Center),
- * and Evidence Inspector (Right).
- * Communicates with POST /query and GET /health.
+ * Connects to live FastAPI backend:
+ * - GET /health
+ * - POST /query
+ *
+ * Implements:
+ * 1. Live health polling & graceful offline degradation
+ * 2. Schema-compliant QueryRequest & QueryResponse handling
+ * 3. Grounded answer rendering with clickable inline [1], [2] citation markers
+ * 4. Interactive Evidence Inspector synchronization
+ * 5. Robust error handling (422, 500, network loss) with path redaction
+ * 6. Duplicate submission prevention & X-Request-ID trace tracking
+ *
  * Zero external dependencies. Zero fabricated metrics.
  */
 
@@ -13,6 +22,7 @@ const state = {
   isLoading: false,
   lastRequestId: /** @type {string|null} */ (null),
   lastResult: /** @type {object|null} */ (null),
+  citations: /** @type {Array<object>} */ ([]),
   selectedCitationIdx: 0,
 };
 
@@ -94,22 +104,38 @@ function toggleLeftPanel() {
   }
 }
 
-function toggleRightPanel() {
+function toggleRightPanel(forceOpen = false) {
   const isMobile = window.innerWidth <= 900;
   if (isMobile) {
-    dom.appLayout?.classList.toggle("right-open");
+    if (forceOpen) {
+      dom.appLayout?.classList.add("right-open");
+    } else {
+      dom.appLayout?.classList.toggle("right-open");
+    }
   } else {
-    dom.appLayout?.classList.toggle("right-collapsed");
+    if (forceOpen) {
+      dom.appLayout?.classList.remove("right-collapsed");
+    } else {
+      dom.appLayout?.classList.toggle("right-collapsed");
+    }
   }
 }
 
-// ── Health Check ───────────────────────────────────────────────────────────
+// ── Health Check (GET /health) ─────────────────────────────────────────────
 async function checkHealth() {
   try {
-    const res = await fetch("/health");
-    if (!res.ok) throw new Error("Status " + res.status);
+    const res = await fetch("/health", {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      setStatus("error", `API Degraded (${res.status})`);
+      return;
+    }
+
     const data = await res.json();
-    if (data.status === "healthy") {
+    if (data && data.status === "healthy") {
       setStatus("healthy", "API Ready");
     } else {
       setStatus("error", "API Degraded");
@@ -126,21 +152,35 @@ function setStatus(status, label) {
 }
 
 // ── Document Selection ─────────────────────────────────────────────────────
+function getResolvedPdfPath(rawPath) {
+  if (!rawPath || typeof rawPath !== "string") return "";
+  const normalized = rawPath.trim().replace(/\\/g, "/");
+  if (normalized.startsWith("data/")) {
+    return normalized;
+  }
+  return `data/${normalized}`;
+}
+
 function selectPaper(filename) {
-  if (!filename || !filename.trim().toLowerCase().endsWith(".pdf")) {
+  if (!filename || typeof filename !== "string") return;
+
+  const cleanName = filename.trim();
+  if (!cleanName.toLowerCase().endsWith(".pdf")) {
     showValidationError(dom.pdfInput, "Filename must end with .pdf");
     return;
   }
-  const cleanName = filename.trim();
+
   state.currentPdf = cleanName;
 
   if (dom.pdfInput) dom.pdfInput.value = cleanName;
   if (dom.activePaperName) dom.activePaperName.textContent = cleanName;
   if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
 
-  // Highlight active preset item
+  // Highlight active item in document list
   document.querySelectorAll(".doc-item-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.getAttribute("data-filename") === cleanName);
+    const btnFile = btn.getAttribute("data-filename");
+    const isMatch = btnFile === cleanName || btnFile === cleanName.replace(/^data[\/\\]/, "");
+    btn.classList.toggle("active", isMatch);
   });
 
   updateSubmitState();
@@ -165,10 +205,29 @@ function showValidationError(inputEl, message) {
   );
 }
 
+function sanitizeErrorMessage(msg) {
+  if (!msg || typeof msg !== "string") {
+    return "An error occurred during query execution.";
+  }
+  // Redact Windows paths (e.g. C:\Users\... or D:\project\...)
+  let clean = msg.replace(/[A-Za-z]:\\[^ \t\n\r"']+/g, "[safe_path]");
+  // Redact Unix root paths
+  clean = clean.replace(/\/(?:Users|home|tmp|var|etc)\/[^ \t\n\r"']+/g, "[safe_path]");
+  // Redact potential API keys
+  clean = clean.replace(/gsk_[A-Za-z0-9_\-]+/g, "[redacted_key]");
+  clean = clean.replace(/sk-[A-Za-z0-9_\-]+/g, "[redacted_key]");
+  // Remove traceback headers if present
+  if (clean.includes("Traceback (most recent call last):")) {
+    const parts = clean.split("Traceback (most recent call last):");
+    clean = parts[0].trim() || "Internal graph execution error occurred.";
+  }
+  return clean;
+}
+
 // ── Composer Controls ──────────────────────────────────────────────────────
 function updateSubmitState() {
   const hasQuery = (dom.queryInput?.value || "").trim().length > 0;
-  const hasPaper = state.currentPdf !== null;
+  const hasPaper = state.currentPdf !== null && state.currentPdf.trim().length > 0;
   if (dom.submitBtn) {
     dom.submitBtn.disabled = !(hasQuery && hasPaper) || state.isLoading;
   }
@@ -198,8 +257,9 @@ function showState(activeEl) {
   });
 }
 
-// ── Query Execution ────────────────────────────────────────────────────────
+// ── Query Execution (POST /query) ──────────────────────────────────────────
 async function submitQuery() {
+  // Prevent duplicate submissions while request is already running
   if (state.isLoading) return;
 
   const query = (dom.queryInput?.value || "").trim();
@@ -234,44 +294,62 @@ async function submitQuery() {
   const stageTimer = setInterval(() => {
     stageIdx = (stageIdx + 1) % stages.length;
     if (dom.loadingStage) dom.loadingStage.textContent = stages[stageIdx];
-  }, 2400);
+  }, 2200);
 
   let requestId = null;
+  const payloadPdfPath = getResolvedPdfPath(state.currentPdf);
 
   try {
     const response = await fetch("/query", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        pdf_path: state.currentPdf,
+        pdf_path: payloadPdfPath,
         query: query,
         top_k: safeTopK,
       }),
     });
 
-    requestId = response.headers.get("X-Request-ID") || null;
+    // Capture X-Request-ID response header
+    requestId = response.headers.get("X-Request-ID") || response.headers.get("x-request-id") || null;
 
     if (!response.ok) {
       let detail = `Server responded with HTTP ${response.status}`;
       try {
         const errJson = await response.json();
-        detail = errJson.detail || detail;
+        if (errJson.detail) {
+          if (typeof errJson.detail === "string") {
+            detail = errJson.detail;
+          } else if (Array.isArray(errJson.detail)) {
+            // FastAPI validation error array
+            detail = errJson.detail.map((e) => e.msg || e.message || "Invalid input").join("; ");
+          }
+        }
       } catch {
         // Fall back to HTTP status message
       }
-      throw new Error(detail);
+      throw new Error(sanitizeErrorMessage(detail));
     }
 
     const data = await response.json();
     state.lastResult = data;
     state.lastRequestId = requestId;
+    state.citations = Array.isArray(data.citations) ? data.citations : [];
     renderResult(data, requestId);
 
   } catch (err) {
     clearInterval(stageTimer);
     state.isLoading = false;
     updateSubmitState();
-    renderError(err.message || "An unexpected error occurred during synthesis.");
+
+    let safeMsg = err.message || "An unexpected error occurred during synthesis.";
+    if (safeMsg.includes("Failed to fetch") || safeMsg.includes("NetworkError")) {
+      safeMsg = "Unable to connect to the PaperMind server. Please verify the backend is running.";
+    }
+    renderError(safeMsg);
+
     if (requestId && dom.footerRequestId) {
       dom.footerRequestId.textContent = `trace: ${requestId}`;
     }
@@ -289,30 +367,130 @@ function renderResult(data, requestId) {
     dom.footerRequestId.textContent = `trace: ${requestId}`;
   }
 
-  // Insufficient evidence case
+  // Case A: Insufficient evidence in paper
   if (data.insufficient_evidence === true) {
-    if (dom.insufficientMsg && data.answer) {
-      dom.insufficientMsg.textContent = data.answer;
+    if (dom.insufficientMsg) {
+      // Use actual grounded refusal answer from backend, or standard fallback
+      dom.insufficientMsg.textContent =
+        data.answer ||
+        "The paper does not contain enough grounded evidence to answer this question with high confidence.";
     }
     showState(dom.stateInsufficient);
-    if (data.citations && data.citations.length > 0) {
-      renderCitations(data.citations);
+    if (state.citations.length > 0) {
+      renderCitations(state.citations);
     }
     renderTechDetails(data, requestId);
     return;
   }
 
-  // Success grounded synthesis
-  if (dom.answerText) {
-    dom.answerText.textContent = data.answer || "(No textual answer generated)";
-  }
+  // Case B: Grounded synthesis answer
+  renderGroundedAnswer(data.answer);
+
   if (dom.contextText) {
     dom.contextText.textContent = data.grounded_context || "(No raw context excerpt)";
   }
 
   showState(dom.stateSuccess);
-  renderCitations(data.citations || []);
+  renderCitations(state.citations);
   renderTechDetails(data, requestId);
+}
+
+// ── Grounded Answer & Inline Citations ─────────────────────────────────────
+function renderGroundedAnswer(rawAnswer) {
+  if (!dom.answerText) return;
+
+  const text = (rawAnswer || "").trim();
+  if (!text) {
+    dom.answerText.textContent = "(No answer generated by model)";
+    return;
+  }
+
+  // Clear previous content
+  dom.answerText.innerHTML = "";
+
+  // Split into paragraphs by double newlines or single newlines
+  const paragraphs = text.split(/\n\n+/);
+
+  paragraphs.forEach((paraText) => {
+    const p = document.createElement("p");
+    p.style.marginBottom = "0.85rem";
+
+    // Parse citation patterns like [1], [2], or [1, 2]
+    // Regex matches [digits] or [digits, digits...]
+    const citationRegex = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+    let lastIdx = 0;
+    let match;
+
+    while ((match = citationRegex.exec(paraText)) !== null) {
+      // Append text before match
+      if (match.index > lastIdx) {
+        p.appendChild(document.createTextNode(paraText.slice(lastIdx, match.index)));
+      }
+
+      // Parse individual citation numbers from e.g. "1, 2" or "1"
+      const nums = match[1].split(",").map((s) => s.trim()).filter(Boolean);
+
+      nums.forEach((numStr) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "inline-citation";
+        btn.textContent = `[${numStr}]`;
+        btn.setAttribute("aria-label", `Jump to citation ${numStr}`);
+
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          highlightAndInspectCitationByNumber(numStr);
+        });
+
+        p.appendChild(btn);
+      });
+
+      lastIdx = match.index + match[0].length;
+    }
+
+    // Append remaining text after last match
+    if (lastIdx < paraText.length) {
+      p.appendChild(document.createTextNode(paraText.slice(lastIdx)));
+    }
+
+    dom.answerText.appendChild(p);
+  });
+}
+
+function highlightAndInspectCitationByNumber(numStr) {
+  if (!state.citations || state.citations.length === 0) return;
+
+  const targetLabel = `[${numStr}]`;
+  let targetIdx = state.citations.findIndex((c) => {
+    return c.citation_label === targetLabel ||
+           c.citation_label === numStr ||
+           c.citation_label === `[${parseInt(numStr, 10)}]`;
+  });
+
+  // Fallback: 1-based index match
+  if (targetIdx === -1) {
+    const parsed = parseInt(numStr, 10) - 1;
+    if (parsed >= 0 && parsed < state.citations.length) {
+      targetIdx = parsed;
+    }
+  }
+
+  if (targetIdx !== -1) {
+    // Force open right inspector panel if collapsed/closed
+    toggleRightPanel(true);
+
+    // Select card in list
+    const cards = document.querySelectorAll(".citation-card");
+    cards.forEach((el, idx) => {
+      const match = idx === targetIdx;
+      el.classList.toggle("selected", match);
+      if (match) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+
+    inspectCitation(state.citations[targetIdx]);
+  }
 }
 
 // ── Evidence Inspector Rendering ───────────────────────────────────────────
@@ -452,7 +630,7 @@ function renderTechDetails(data, requestId) {
   const entries = [];
   if (requestId)              entries.push(["Trace Request ID", requestId]);
   if (data.status)            entries.push(["Execution Status", data.status]);
-  if (state.currentPdf)       entries.push(["Document Context", state.currentPdf]);
+  if (state.currentPdf)       entries.push(["Document Context", getResolvedPdfPath(state.currentPdf)]);
   if (data.citations?.length) entries.push(["Retrieved Candidates", data.citations.length]);
   if (data.insufficient_evidence !== undefined) {
     entries.push(["Evidence Sufficiency", data.insufficient_evidence ? "Refusal (Insufficient)" : "Verified"]);
@@ -479,7 +657,7 @@ function renderTechDetails(data, requestId) {
 // ── Error View ─────────────────────────────────────────────────────────────
 function renderError(message) {
   if (dom.errorMessage) {
-    dom.errorMessage.textContent = message || "An unexpected error occurred.";
+    dom.errorMessage.textContent = sanitizeErrorMessage(message);
   }
   showState(dom.stateError);
   dom.techPanel?.classList.add("hidden");
@@ -492,7 +670,7 @@ function dismissError() {
 // ── Keyboard Shortcuts ─────────────────────────────────────────────────────
 function onKeyDown(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-    if (!dom.submitBtn?.disabled) {
+    if (!dom.submitBtn?.disabled && !state.isLoading) {
       submitQuery();
     }
   }
@@ -500,7 +678,7 @@ function onKeyDown(e) {
 
 // ── Copy Answer to Clipboard ───────────────────────────────────────────────
 async function copyAnswer() {
-  const text = dom.answerText?.textContent || "";
+  const text = dom.answerText?.innerText || dom.answerText?.textContent || "";
   if (!text) return;
 
   try {
@@ -514,7 +692,7 @@ async function copyAnswer() {
       }, 1800);
     }
   } catch {
-    // Clipboard permission denied
+    // Clipboard permission denied or fallback
   }
 }
 
@@ -523,8 +701,8 @@ function init() {
   // Panel toggle event listeners
   dom.toggleLeftBtn?.addEventListener("click", toggleLeftPanel);
   dom.closeLeftBtn?.addEventListener("click", toggleLeftPanel);
-  dom.toggleRightBtn?.addEventListener("click", toggleRightPanel);
-  dom.closeRightBtn?.addEventListener("click", toggleRightPanel);
+  dom.toggleRightBtn?.addEventListener("click", () => toggleRightPanel());
+  dom.closeRightBtn?.addEventListener("click", () => toggleRightPanel());
 
   // Platform-aware keyboard shortcut hint
   const isMac = navigator.platform?.toUpperCase().indexOf("MAC") >= 0 ||
@@ -533,7 +711,7 @@ function init() {
     dom.shortcutHint.textContent = isMac ? "⌘ ↵" : "Ctrl ↵";
   }
 
-  // Health polling
+  // Live health polling
   checkHealth();
   setInterval(checkHealth, 30_000);
 
@@ -585,7 +763,7 @@ function init() {
   showState(dom.stateEmpty);
   updateSubmitState();
 
-  // If preset exists, pre-select default
+  // If preset exists, pre-select default candidate
   const defaultPreset = document.querySelector(".doc-item-btn[data-filename]");
   if (defaultPreset && defaultPreset.dataset.filename) {
     selectPaper(defaultPreset.dataset.filename);
