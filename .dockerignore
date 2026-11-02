@@ -9,4 +9,4 @@ htmlcov
 .git
 .env
 .deepeval
-
+data/
