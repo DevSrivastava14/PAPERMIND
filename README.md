@@ -1,10 +1,12 @@
 # PaperMind
 
-> **Multimodal Scientific Research Paper Assistant with Hybrid RRF Retrieval, Visual Relationship Expansion, Cross-Encoder Reranking, and Grounded Generation.**
+> **A recruiter-ready multimodal research assistant that turns difficult scientific PDFs into traceable, grounded answers.**
+>
+> PaperMind preserves text, captions, figures, tables, and equations instead of flattening a paper into generic chunks. It combines dense FAISS search, BM25, RRF, relationship-aware multimodal reranking, citation validation, native answer streaming, and process-level observability in one reproducible FastAPI application.
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-orange.svg)](https://langchain-ai.github.io/langgraph/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.159.1-009688.svg)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.16-orange.svg)](https://langchain-ai.github.io/langgraph/)
 [![FAISS](https://img.shields.io/badge/FAISS-CPU%201.15.1-black.svg)](https://github.com/facebookresearch/faiss)
 [![SentenceTransformers](https://img.shields.io/badge/Sentence--Transformers-6.1.0-yellow.svg)](https://www.sbert.net/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
@@ -52,22 +54,20 @@ PaperMind is organized into a modular pipeline orchestrated as a **LangGraph Sta
 ```mermaid
 flowchart TD
     subgraph Client ["Client Layer"]
-        UserReq["User Query: POST /query\n(pdf_path, query, top_k)"]
+        UserReq["Research UI or API client"]
     end
 
     subgraph API ["FastAPI Boundary (app/api/main.py)"]
-        ReqVal["Validation & Path Safety\n(resolve_safe_pdf_path)"]
+        Upload["POST /documents\nPDF validation and registry"]
+        ReqVal["POST /query or /query/stream\nValidation & path safety"]
         ReqID["Assign X-Request-ID &\nStructured Logging"]
     end
 
     subgraph LangGraph ["LangGraph Execution Engine (app/orchestration/langgraph_graph.py)"]
-        NodeIngest["1. Ingestion Node\nPyMuPDF Multimodal Parsing"]
-        NodeIndex["2. Indexing Node\nFAISS Dense + BM25 Sparse"]
-        NodeRetrieve["3. Retrieval Node\nDense + BM25 -> RRF -> Graph Expansion"]
-        NodeRerank["4. Reranking Node\nMultimodalReranker (CE + CLIP)"]
-        NodeAssemble["5. Context Assembly\nCitation Label Mapping ([1], [2])"]
-        NodeGenerate["6. Generation Node\nGroq LLM (qwen/qwen3.8-27b)"]
-        NodeRefusal{"Evidence Sufficient?"}
+        NodeIngest["ingest\nPDF parsing or cache lookup"]
+        NodeIndex["build_pipeline\nFAISS + BM25 construction when needed"]
+        NodeRetrieve["retrieve\nHybrid retrieval, expansion,\nreranking, and context assembly"]
+        NodeGenerate["generate_answer\nGrounded Groq generation\nand citation validation"]
     end
 
     subgraph Output ["API Response (QueryResponse)"]
@@ -75,11 +75,13 @@ flowchart TD
         RefusalResp["Grounded Refusal Answer +\ninsufficient_evidence: true"]
     end
 
-    UserReq --> ReqVal --> ReqID --> NodeIngest
-    NodeIngest --> NodeIndex --> NodeRetrieve --> NodeRerank --> NodeAssemble --> NodeGenerate
-    NodeGenerate --> NodeRefusal
-    NodeRefusal -- Yes --> SuccessResp
-    NodeRefusal -- No / Out-of-Scope --> RefusalResp
+    UserReq --> ReqVal
+    UserReq --> Upload
+    Upload --> ReqVal
+    ReqVal --> ReqID --> NodeIngest
+    NodeIngest --> NodeIndex --> NodeRetrieve --> NodeGenerate
+    NodeGenerate --> SuccessResp
+    NodeGenerate --> RefusalResp
 ```
 
 *For in-depth architectural specifications and subsystem details, see [docs/architecture.md](docs/architecture.md).*
@@ -98,7 +100,7 @@ flowchart LR
     S --> RRF
     RRF --> EXP[1-Hop Relationship\nExpansion (Caption -> Image)]
     EXP --> POOL[Candidate Pool\nTop-10 Candidates]
-    POOL --> RERANK[Multimodal Reranker\nCE 80% / CLIP 80% + RRF 20%]
+    POOL --> RERANK[Multimodal Reranker\nText: CE 80% + RRF 20%\nImage: CLIP 80% + RRF 20%]
     RERANK --> TOPK[Final Top-5\nGrounded Context]
 ```
 
@@ -109,7 +111,8 @@ flowchart LR
 5. **Multimodal Reranking:** 
    - Text chunks are scored via `cross-encoder/ms-marco-MiniLM-L-6-v2`.
    - Image chunks are scored via text-query/image cosine similarity using `sentence-transformers/clip-ViT-B-32`.
-   - Scores are blended: $0.80 \times \text{Model}_{\text{norm}} + 0.20 \times \text{RRF}_{\text{norm}}$.
+   - Text candidates use $0.80 \times \text{CE}_{\text{norm}} + 0.20 \times \text{RRF}_{\text{norm}}$.
+   - Image candidates use $0.80 \times \text{CLIP}_{\text{norm}} + 0.20 \times \text{RRF}_{\text{norm}}$.
 6. **Context Assembly:** Top $k$ (default 5) results are assembled with sequential citation tokens `[1]`, `[2]`, preserving page number, element type, and content.
 
 ---
@@ -183,25 +186,69 @@ D10: Lazy DeepEval Import (PEP 562)    --> Eliminated heavy evaluation dependenc
 
 ---
 
-## 8. Limitations & Scope Boundaries
+## 8. Observability with LangSmith
+
+PaperMind combines local structured JSON logging with optional LangSmith
+tracing. Each `/query` or `/query/stream` request creates one `Research Query`
+parent trace. The trace stages are process-level spans, not additional
+LangGraph nodes:
+
+1. **Document Preparation** — document selection, cache lookup, and ingestion
+   or index construction when required.
+2. **Query Processing** — retrieval request preparation.
+3. **Hybrid Retrieval** — dense retrieval, BM25, and RRF.
+4. **Multimodal Evidence Processing** — relationship expansion, reranking, and
+   evidence assembly.
+5. **Grounded Answer Generation** — prompt construction and Groq generation.
+6. **Answer Validation** — grounding and citation validation.
+
+Cached document bundles avoid repeating parsing and index construction within
+the application process. The cache is bounded and fingerprint-aware; it is not
+shared between worker processes.
+
+Tracing is disabled by default. To enable it locally, configure a real
+LangSmith account in `.env` while keeping the privacy settings enabled:
+
+```dotenv
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=papermind-dev
+LANGSMITH_HIDE_INPUTS=true
+LANGSMITH_HIDE_OUTPUTS=true
+```
+
+Only safe metadata such as request IDs, lengths, counts, model names, and
+statuses is instrumented. Raw questions, filesystem paths, PDF contents,
+retrieved evidence, prompts, answers, and credentials are not sent by
+PaperMind's tracing helpers. Local tests do not require a key or make network
+requests. See [docs/ENGINEERING_DECISIONS.md](docs/ENGINEERING_DECISIONS.md)
+for the detailed observability decision and limitations.
+
+## 9. Limitations & Scope Boundaries
 
 A complete technical boundary audit is documented in [docs/LIMITATIONS.md](docs/LIMITATIONS.md):
 
 - **Single-Paper Scope:** Queries are scoped to one PDF path at a time. Cross-corpus multi-document search is not supported.
-- **In-Memory Lifecycle:** Indexes are rebuilt per request. Ideal for single-paper deep dive; pre-indexed library querying is deferred.
+- **Process-Local Lifecycle:** Parsed documents and indexes are cached and reused
+  for matching document fingerprints within one application process. The cache
+  is bounded, invalidated when files change, and not shared across worker
+  processes; persistent library indexing is deferred.
 - **Benchmark Coverage:** The evaluation suite consists of 8 hand-curated questions on one paper. The canonical paper contains 0 extracted tables or standalone equations; table/equation parsing is verified via unit tests, not live benchmark runs.
 - **Image Content Parsing:** Text inside diagram images is not OCR-parsed. Visual retrieval relies on CLIP embeddings and caption proximity.
-- **Hosted Observability:** LangSmith integration was deferred in favor of zero-dependency standard-library structured JSON logging.
+- **Hosted Observability:** LangSmith tracing is implemented as an optional,
+  privacy-preserving integration. It requires an externally configured account
+  and is disabled by default; local structured logging remains available
+  without it.
 
 ---
 
-## 9. Technology Stack
+## 10. Technology Stack
 
 | Domain | Technology / Library | Purpose |
 |---|---|---|
 | **Language & Runtime** | Python 3.11+ / 3.13-slim | Core application runtime |
-| **API Framework** | FastAPI 0.115+, Uvicorn | High-performance asynchronous REST API |
-| **Workflow Engine** | LangGraph 0.2+ | StateGraph pipeline orchestration and error routing |
+| **API Framework** | FastAPI 0.159.1, Uvicorn 0.54.0 | REST API and SSE streaming |
+| **Workflow Engine** | LangGraph 1.2.16 | StateGraph pipeline orchestration and error routing |
 | **PDF Processing** | PyMuPDF (fitz) 1.28.2 | Multimodal layout and element extraction |
 | **Vector Search** | FAISS CPU 1.15.1 | Dense L2/Cosine similarity vector index |
 | **Dense Embeddings** | SentenceTransformers (`all-MiniLM-L6-v2`) | 384-dimensional text embeddings |
@@ -214,7 +261,7 @@ A complete technical boundary audit is documented in [docs/LIMITATIONS.md](docs/
 
 ---
 
-## 10. Reproducible Setup & Docker Deployment
+## 11. Reproducible Setup & Docker Deployment
 
 ### Prerequisites
 
@@ -243,7 +290,13 @@ APP_ENV=development
 GROQ_MODEL=qwen/qwen3.8-27b
 GROQ_EVALUATION_MODEL=openai/gpt-oss-120b
 GROQ_BASE_URL=https://api.groq.com/openai/v1
-GROQ_API_KEY=gsk_your_actual_key_here
+GROQ_API_KEY=
+PAPER_MIND_UPLOAD_ROOT=data/uploads
+LANGSMITH_TRACING=false
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=papermind-dev
+LANGSMITH_HIDE_INPUTS=true
+LANGSMITH_HIDE_OUTPUTS=true
 ```
 
 #### Runtime Configuration Reference
@@ -258,8 +311,12 @@ GROQ_API_KEY=gsk_your_actual_key_here
 | `PAPER_MIND_DOC_ROOT` | No | `.` (`/app/data` in Docker) | Document root directory boundary for resolving PDF paths safely. |
 | `PAPER_MIND_ALLOWED_ROOTS` | No | None | Additional allowed document directory roots (path-separated). |
 | `PAPER_MIND_MAX_PDF_SIZE_MB` | No | `50.0` | Maximum allowed PDF file size in MB before rejection. |
+| `PAPER_MIND_UPLOAD_ROOT` | No | `data/uploads` | Storage root for uploaded PDFs and the document registry. |
 | `PAPERMIND_LOG_LEVEL` | No | `INFO` (fallback `LOG_LEVEL`) | Minimum level for structured JSON logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `HF_HOME` | No | `~/.cache/huggingface` | Cache directory for downloaded Hugging Face model weights. |
+| `LANGSMITH_TRACING` | No | `false` | Enables optional LangSmith tracing. |
+| `LANGSMITH_PROJECT` | No | `papermind-dev` | LangSmith project name when tracing is enabled. |
+| `LANGSMITH_HIDE_INPUTS` / `LANGSMITH_HIDE_OUTPUTS` | No | `true` | Keeps LangSmith payload privacy settings enabled. |
 
 ### 3. Place Sample PDF
 
@@ -304,7 +361,28 @@ docker compose down
 
 ---
 
-## 11. API Usage Guide
+## 12. API Usage Guide
+
+### Real application workflow
+
+1. Upload a PDF with `POST /documents`.
+2. Select the returned `document_id` in the document library or API client.
+3. Submit a question to `/query` for a complete JSON response, or
+   `/query/stream` for retrieval metadata followed by genuine Groq-generated
+   SSE token events.
+4. Inspect citations, retrieval diagnostics, grounded context, and the final
+   validated answer in the research interface.
+
+Uploaded files are registered with lifecycle states (`uploaded`, `processing`,
+`ready`, and `failed`). Uploaded PDFs must be queried by `document_id`; direct
+`pdf_path` queries are retained for trusted files such as the canonical sample
+paper.
+
+### `POST /documents`
+
+Accepts one PDF upload, validates and stores it, and returns its server-managed
+`document_id`. Upload does not perform ingestion; ingestion begins when the
+document is queried.
 
 ### `POST /query`
 
@@ -375,9 +453,24 @@ curl -X POST http://localhost:8000/query \
 }
 ```
 
+### `POST /query/stream`
+
+Uses the same request fields and retrieval pipeline as `/query`, but returns
+`text/event-stream` data. Events are emitted as:
+
+- `retrieval`: grounded context, citations, and retrieval diagnostics.
+- `token`: each provider-generated answer chunk.
+- `complete`: the final validated answer and completion metadata.
+- `error`: explicit failure information; interrupted streams are not marked
+  complete.
+
+The frontend consumes fragmented SSE frames with `fetch()` and a
+`ReadableStream`, appending incoming token text immediately while preserving
+the final Markdown and citation rendering.
+
 ---
 
-## 12. Local Development & Testing Instructions
+## 13. Local Development & Testing Instructions
 
 To run and test PaperMind outside of Docker in a local Python virtual environment:
 
@@ -413,7 +506,7 @@ pytest tests/test_evaluation_dataset.py tests/test_evaluation_runner.py tests/te
 
 ---
 
-## 13. Project Repository Structure
+## 14. Project Repository Structure
 
 ```
 RESEARCH_PROJECT/
@@ -441,7 +534,7 @@ RESEARCH_PROJECT/
 ├── scripts/
 │   ├── benchmark_pipeline.py    # 9-stage latency benchmark harness
 │   └── day25_deepeval.py        # DeepEval live evaluation execution script
-├── tests/                       # 400+ unit and integration test suite
+├── tests/                       # Unit and integration test suite
 ├── docker-compose.yml           # Single-service Docker Compose configuration
 ├── Dockerfile                   # Python 3.13-slim container definition
 ├── requirements.txt             # Direct runtime dependencies
@@ -451,16 +544,15 @@ RESEARCH_PROJECT/
 
 ---
 
-## 14. Future Roadmap
+## 15. Future Roadmap
 
 - [ ] **ColPali / Vision-Language Late Interaction:** Experiment with native multi-vector vision encoders on GPU instances to replace dual-stage text/CLIP embeddings.
 - [ ] **Persistent Vector Storage:** Optional pluggable adapter for persistent vector databases (e.g., Qdrant / pgvector) for multi-paper library indexing.
 - [ ] **OCR Ingestion Engine:** Integrate lightweight OCR for diagram callouts and embedded chart text.
-- [ ] **Interactive Web UI:** Next.js / Streamlit visual interface featuring interactive bounding-box overlays for cited figure regions.
 
 ---
 
-## 15. License & Citations
+## 16. License & Citations
 
 Developed as part of an advanced AI Engineering portfolio. The canonical benchmark paper used for local testing is:
 - *Sample Paper:* "AI for Security vs Security for AI", IEEE Access (included in `data/sample_paper.pdf` for local reproducibility).
