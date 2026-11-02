@@ -1963,40 +1963,94 @@ No Groq calls, expensive inference, retrieval changes, commits, or pushes were p
 
 **Commit checkpoint:** `test(ingestion): verify multi-document isolation and reliability`
 
-### Day 36 — Final Engineering Polish & System Review
+## Day 36 — Final Engineering Polish & System Review <badge>COMPLETED</badge>
 
 **Objective:** Bring the complete PaperMind system to the agreed portfolio engineering standard.
 
-**Planned work:**
+**Completed work:**
 
-- Review code organization, naming, error handling, and module boundaries.
-- Audit API validation and security.
-- Review configuration defaults and environment-variable documentation.
-- Inspect logging for accidental sensitive information.
-- Verify Docker startup and environment setup.
-- Review dependency consistency and obsolete helper scripts.
-- Run focused and full regression suites where appropriate.
-- Review retrieval and evaluation benchmark reproducibility.
-- Inspect failure behavior and performance bottlenecks.
-- Review LangSmith integration and available traces; distinguish actual tracing from planned or unavailable instrumentation.
-- Fix genuine reliability issues rather than making cosmetic changes.
+- Reviewed code organization, naming, error handling, and module boundaries.
+- Audited API validation, PDF upload restrictions, path safety, and error handling.
+- Reviewed configuration defaults and dependency installation profiles.
+- Inspected application logging for accidental exposure of sensitive information.
+- Hardened Docker build context:
+  - Excluded runtime `data/` from the Docker build context.
+  - Replaced broad `COPY . .` with `COPY app ./app`.
+  - Preserved Docker Compose runtime volume configuration.
+- Separated dependency profiles:
+  - `requirements.txt` — pinned runtime dependencies.
+  - `requirements-dev.txt` — development dependencies and pytest.
+  - `requirements-evaluation.txt` — DeepEval and compatible Click dependency.
+- Reviewed obsolete helper scripts and retained `scripts/run_server.ps1` as the local development launcher.
+- Audited document cache isolation, per-document locking, invalidation, bounded LRU eviction, and incomplete-build handling.
+- Reviewed failure behavior, resource limitations, and performance bottlenecks.
+- Reviewed benchmark methodology, saved evaluation results, and reproducibility considerations.
+- Confirmed that LangSmith is not yet integrated; structured application logging remains the current observability mechanism.
+
+**Validation results:**
+
+- Focused regression tests: **66 passed**.
+- Full regression suite: **572 passed, 13 failed**.
+- The 13 failures match previously established baseline multimodal retrieval failures; no retrieval algorithms were changed to suppress them.
+- Runtime and evaluation dependency dry-run resolution passed under Python 3.13.5.
+- Docker Compose configuration validation passed.
+- Docker image built successfully.
+- PaperMind started successfully through Docker Compose.
+- Verified that the containerized application interface opened and worked in the browser.
+
+**Known limitations documented:**
+
+- No application-wide concurrency limit.
+- Document cache remains process-local.
+- Cache invalidation uses file size and modification time rather than content hashing.
+- Authentication is not implemented; unrestricted public deployment is not recommended.
+- Multi-worker and production-scale concurrency behavior remain unvalidated.
+- Existing virtual environment has Click 8.5.0, while the evaluation dependency profile specifies Click 8.3.1.
+- LangSmith tracing remains deferred and is not yet implemented.
 
 **Acceptance criteria:**
 
-- Reproducible local setup.
-- Reliable application startup.
-- Relevant automated tests pass.
-- Configuration and security behavior are documented.
-- Benchmark methodology and saved results are understandable.
-- Known limitations and pre-existing failures are explicitly documented.
+- Reproducible dependency installation profiles.
+- Reliable local application startup.
+- Docker build and runtime successfully verified.
+- Relevant focused tests pass.
+- Known full-suite baseline failures are explicitly documented.
+- Configuration, security behavior, and engineering limitations are documented.
+- Benchmark methodology and saved results have been reviewed.
+- Genuine reliability issues identified and addressed without unnecessary architectural changes.
+
+**Status:** COMPLETED.
 
 **Commit checkpoint:** `chore: finalize PaperMind engineering quality`
 
 ---
 
-### Day 37 — Portfolio, Documentation & Interview Readiness
+## Day 37 — Portfolio, Documentation & Interview Readiness
 
-**Objective:** Make PaperMind understandable, reproducible, and defensible in technical interviews.
+**Objective:** Make PaperMind understandable, reproducible, observable, and defensible in technical interviews.
+
+### Phase 1: LangSmith Integration & Observability
+
+**Planned work:**
+
+- Integrate LangSmith with the existing LangGraph orchestration.
+- Configure tracing through environment variables without hardcoding credentials.
+- Trace actual query execution, including retrieval, reranking, context construction, and generation.
+- Inspect node-level execution, latency, errors, and execution paths.
+- Verify that genuine traces appear in the LangSmith dashboard.
+- Inspect retrieval and generation observability while avoiding unnecessary exposure of sensitive PDF contents or credentials.
+- Document LangSmith configuration, trace examples, and any limitations.
+- Preserve existing structured logging and application diagnostics.
+
+**Acceptance criteria:**
+
+- Actual LangSmith traces are visible for real PaperMind queries.
+- Relevant LangGraph execution steps can be inspected.
+- Trace behavior and limitations are documented.
+- No fabricated traces or observability claims.
+- LangSmith integration does not break existing retrieval, generation, or streaming workflows.
+
+### Phase 2: Documentation & Presentation
 
 **Documentation and presentation:**
 
@@ -2004,13 +2058,17 @@ No Groq calls, expensive inference, retrieval changes, commits, or pushes were p
 - Problem statement and motivation.
 - Architecture diagram and data-flow explanation.
 - Installation and environment configuration.
+- Docker and local startup instructions.
 - Upload-to-research workflow documentation.
 - API endpoint documentation.
 - Test and benchmark instructions.
 - Actual experimental results and limitations.
 - Screenshots of the real interface.
+- LangSmith trace screenshots from the working integration.
 - Short project demonstration walkthrough.
 - Technical trade-offs and future scalability roadmap.
+
+### Phase 3: Interview Preparation
 
 **Interview preparation topics:**
 
@@ -2023,7 +2081,8 @@ No Groq calls, expensive inference, retrieval changes, commits, or pushes were p
 7. API reliability, validation, and security.
 8. Latency versus retrieval-quality trade-offs.
 9. Evaluation methodology and interpretation of DeepEval metrics.
-10. Scaling toward 100,000+ papers in an institutional research repository.
+10. LangSmith tracing and observability.
+11. Scaling toward 100,000+ papers in an institutional research repository.
 
 **Acceptance criteria:**
 
@@ -2031,8 +2090,7 @@ No Groq calls, expensive inference, retrieval changes, commits, or pushes were p
 - A technical reviewer can reproduce the main workflow.
 - Architecture and benchmark claims are supported by actual implementation and results.
 - The demo shows real uploaded-document research, citations, multimodal evidence, and diagnostics.
+- Actual LangSmith traces demonstrate the orchestration workflow.
 - Interview explanations cover design decisions, trade-offs, and limitations.
 
 **Commit checkpoint:** `docs: finalize PaperMind portfolio and interview documentation`
-
----
