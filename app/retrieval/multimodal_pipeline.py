@@ -23,6 +23,7 @@ from app.reranking.base import BaseReranker
 from app.retrieval.multimodal_assembler import MultimodalContextAssembler
 from app.retrieval.multimodal_models import MultimodalRetrievedContext
 from app.retrieval.rrf import DEFAULT_RRF_K, reciprocal_rank_fusion
+from app.observability.langsmith_tracing import trace_stage
 
 DEFAULT_RERANK_CANDIDATE_POOL: int = 10
 
@@ -107,6 +108,14 @@ class MultimodalRetrievalPipeline:
         results: List[MultimodalSearchResult],
     ) -> List[MultimodalSearchResult]:
         """Append directly related elements without recursively traversing relationships."""
+        if not any(result.related_element_ids for result in results):
+            return results
+        return self._expand_related_results_traced(results)
+
+    def _expand_related_results_traced(
+        self,
+        results: List[MultimodalSearchResult],
+    ) -> List[MultimodalSearchResult]:
         expanded: List[MultimodalSearchResult] = []
         seen_ids = set()
 
@@ -575,18 +584,32 @@ class MultimodalRetrievalPipeline:
         Returns:
             MultimodalRetrievedContext with citations, formatted context, and reranked search results.
         """
-        search_results, candidate_count = self.hybrid_retrieve_reranked(
-            query=query,
-            dense_top_k=dense_top_k,
-            sparse_top_k=sparse_top_k,
-            candidate_top_k=candidate_top_k,
-            top_k=top_k,
+        with trace_stage(
+            "Hybrid Retrieval",
+            dense_top_k=dense_top_k or top_k,
+            sparse_top_k=sparse_top_k or top_k,
             rrf_k=rrf_k,
-            rrf_top_k=rrf_top_k,
-            reranker=reranker,
-            return_candidate_count=True,
-        )
-        context = self.assembler.assemble(search_results=search_results, document=document)
+        ):
+            search_results, candidate_count = self.hybrid_retrieve_reranked(
+                query=query,
+                dense_top_k=dense_top_k,
+                sparse_top_k=sparse_top_k,
+                candidate_top_k=candidate_top_k,
+                top_k=top_k,
+                rrf_k=rrf_k,
+                rrf_top_k=rrf_top_k,
+                reranker=reranker,
+                return_candidate_count=True,
+            )
+        with trace_stage(
+            "Multimodal Evidence Processing",
+            candidate_count=candidate_count,
+            result_count=len(search_results),
+        ):
+            context = self.assembler.assemble(
+                search_results=search_results,
+                document=document,
+            )
         context.candidate_count = candidate_count
         return context
 

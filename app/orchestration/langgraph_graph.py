@@ -25,6 +25,7 @@ from app.generation.models import AnswerResult
 from app.multimodal.collection import MultimodalDocument
 from app.multimodal.representation import ElementType
 from app.documents.cache import DocumentBundle, get_or_build_bundle
+from app.observability.langsmith_tracing import trace_stage
 from app.reranking.base import BaseReranker
 from app.retrieval.models import RetrievedContext
 from app.retrieval.multimodal_models import MultimodalRetrievedContext
@@ -131,6 +132,11 @@ class GraphState(TypedDict, total=False):
 
 
 def ingest_document(state: GraphState) -> GraphState:
+    with trace_stage("Document Preparation", cache_hit=bool(state.get("use_cache"))):
+        return _ingest_document_impl(state)
+
+
+def _ingest_document_impl(state: GraphState) -> GraphState:
     """Build the multimodal document from the configured PDF."""
     if state.get("document") is not None:
         return {"status": "ingestion_complete", "error": None}
@@ -229,6 +235,11 @@ def build_retrieval_pipeline(state: GraphState) -> GraphState:
 
 
 def retrieve_context(state: GraphState) -> GraphState:
+    with trace_stage("Query Processing", top_k=state.get("top_k", 5)):
+        return _retrieve_context_impl(state)
+
+
+def _retrieve_context_impl(state: GraphState) -> GraphState:
     """Run hybrid retrieval, reranking, and multimodal context assembly with observability."""
     start_time = time.perf_counter()
     request_id = state.get("request_id")
@@ -319,6 +330,10 @@ def retrieve_context(state: GraphState) -> GraphState:
 
 
 def generate_answer(state: GraphState) -> GraphState:
+    return _generate_answer_impl(state)
+
+
+def _generate_answer_impl(state: GraphState) -> GraphState:
     """Generate grounded answer from retrieved multimodal context with observability."""
     request_id = state.get("request_id")
     document_id = state.get("document_id")

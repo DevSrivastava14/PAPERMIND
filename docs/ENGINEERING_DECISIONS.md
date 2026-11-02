@@ -19,7 +19,7 @@
    - [D8 — In-Memory FAISS](#d8--in-memory-faiss)
    - [D9 — Request-Local State Instead of Shared Mutable State](#d9--request-local-state-instead-of-shared-mutable-state)
    - [D10 — Lazy DeepEval Imports](#d10--lazy-deepeval-imports)
-   - [D11 — Structured Logging and Deferred LangSmith](#d11--structured-logging-and-deferred-langsmith)
+   - [D11 — Structured Logging and Process-Level LangSmith](#d11--structured-logging-and-process-level-langsmith)
 2. [Failure Analysis](#failure-analysis)
    - [F1 — CLIP Normalization Bug](#f1--clip-normalization-bug)
    - [F2 — FastAPI Exception-Handler TypeError](#f2--fastapi-exception-handler-typeerror)
@@ -473,7 +473,7 @@ API startup no longer requires `deepeval`; `pytest tests/test_api.py` → 17 pas
 
 ---
 
-### D11 — Structured Logging and Deferred LangSmith
+### D11 — Structured Logging and Process-Level LangSmith
 
 **Problem being addressed**
 
@@ -494,20 +494,41 @@ Every request gets a UUID `request_id` (from `X-Request-ID` header or generated)
 
 `_sanitize_message()` redacts API key patterns (`gsk_…`, `sk-…`) and filesystem paths before logging any error string.
 
-**Why LangSmith was deferred**
+The structured JSON logs provide per-request observability: request identity,
+retrieval configuration, candidate/result counts, reranker identity, latencies,
+and error categories. Optional LangSmith tracing adds one safe parent trace per
+research request with these process-level child stages, without changing
+execution:
 
-Source: `PROJECT_PROGRESS.md` Day 29, line 1581; Day 26, line 1293.
+1. Document Preparation — selection, cache use, and ingestion/indexing when needed.
+2. Query Processing — query and retrieval representation preparation.
+3. Hybrid Retrieval — dense retrieval, BM25 retrieval, and RRF.
+4. Multimodal Evidence Processing — relationship expansion, reranking, and evidence assembly.
+5. Grounded Answer Generation — context/prompt construction and Groq generation.
+6. Answer Validation — grounding and citation checks.
 
-> "LangSmith is planned for later observability/tracing and is **not** a replacement for the current evaluation framework."
-> "Not integrated. Remains conditional on future value assessment."
+Only stages that execute are emitted. Safe metadata excludes questions, paths,
+evidence, prompts, answers, and credentials. Cached operations do not cause
+additional ingestion work.
 
-The structured JSON logs provide the same per-request observability surface needed at the current scale: request identity, retrieval config, candidate count, result count, reranker identity, latencies, and error categories — without an external service dependency. LangSmith integration would add value primarily for distributed tracing across multiple services or for interactive trace inspection in a team context, neither of which applies at the current single-service scope.
+Enable a portfolio trace with `LANGSMITH_TRACING=true`, a configured
+`LANGSMITH_API_KEY`, and `LANGSMITH_PROJECT` in `.env`. Keep
+`LANGSMITH_HIDE_INPUTS=true` and `LANGSMITH_HIDE_OUTPUTS=true`. Both `/query`
+and `/query/stream` use one request trace; streaming generation and validation
+remain associated with that trace even though they execute outside the graph.
+
+For a portfolio demonstration, copy the tracing settings from `.env.example`
+into the project `.env`, start PaperMind normally, submit a question through the
+web UI or `POST /query`, then open the configured LangSmith project and inspect
+the request's nested run tree. Use `POST /query/stream` to demonstrate the
+separate streamed-generation span. A live API key and account are required;
+local tests only verify safe serialization and do not contact LangSmith.
 
 **Alternatives and trade-offs**
 
 | Alternative | Reason not chosen |
 |---|---|
-| LangSmith | External service; adds dependency and SDK overhead; deferred pending evidence of additional value |
+| LangSmith | Optional external service; useful for process-level portfolio observability while preserving local logs |
 | OpenTelemetry | Appropriate for multi-service distributed systems; over-engineered for a single process |
 | Print statements / unstructured logs | Not parseable; no correlation between request and retrieval/generation events |
 | No observability | Impossible to debug latency regressions or identify error patterns in production |
@@ -726,10 +747,9 @@ Rate limits constrain the scale of LLM-as-judge evaluation at the Groq free tier
 | D8 | In-memory FAISS | Decision | Day 5, 28: FAISS retrieval 0.35 ms; rebuild per request by design |
 | D9 | Request-local candidate count | Decision | Day 29: removed `self._last_candidate_count` |
 | D10 | Lazy DeepEval imports | Decision | Day 30: PEP 562 `__getattr__`; API startup unblocked |
-| D11 | Structured logging / deferred LangSmith | Decision | Day 29: 3 named loggers, JSON events, no external service |
+| D11 | Structured logging / process-level LangSmith | Decision | Day 36: safe JSON logs plus six process-level optional trace stages |
 | F1 | CLIP normalization bug | Failure | Day 22–23: Q6 image dropped rank 5→6; fixed with explicit neutral 0.5 |
 | F2 | FastAPI exception-handler TypeError | Failure | Day 27: incorrect handler signature; corrected per FastAPI protocol |
 | F3 | Shared mutable candidate-count race | Failure | Day 29: removed instance attribute; returned via tuple |
 | F4 | Eager DeepEval import / startup failure | Failure | Day 30: `ModuleNotFoundError`; fixed with lazy `__getattr__` |
 | F5 | Groq rate-limit evaluation failures | Failure | Day 19–25: Q6/INSUFFICIENT metrics failed; aggregation corrected |
-

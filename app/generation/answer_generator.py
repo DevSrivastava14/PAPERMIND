@@ -6,6 +6,7 @@ from app.generation.base import BaseGenerator
 from app.generation.models import AnswerResult
 from app.generation.prompt_builder import build_grounded_prompt
 from app.generation.validation import is_insufficient_evidence, validate_answer_citations
+from app.observability.langsmith_tracing import trace_stage
 from app.retrieval.models import RetrievedContext
 from app.retrieval.multimodal_models import MultimodalRetrievedContext
 
@@ -59,11 +60,12 @@ class AnswerGenerator:
 
         # Guard: no evidence — do not invoke the model.
         if not citations or not str(formatted_context).strip():
-            validation = validate_answer_citations(
-                answer=_INSUFFICIENT_EVIDENCE_ANSWER,
-                citations=[],
-                is_insufficient=True,
-            )
+            with trace_stage("Answer Validation", insufficient_evidence=True):
+                validation = validate_answer_citations(
+                    answer=_INSUFFICIENT_EVIDENCE_ANSWER,
+                    citations=[],
+                    is_insufficient=True,
+                )
             return AnswerResult(
                 answer=_INSUFFICIENT_EVIDENCE_ANSWER,
                 citations=[],
@@ -74,15 +76,24 @@ class AnswerGenerator:
                 validation=validation,
             )
 
-        prompt = build_grounded_prompt(query=query, context=context)
-        answer_text = self.generator.generate(prompt)
+        with trace_stage(
+            "Grounded Answer Generation",
+            model=self.generator.model_name,
+        ):
+            prompt = build_grounded_prompt(query=query, context=context)
+            answer_text = self.generator.generate(prompt)
 
         is_insufficient = is_insufficient_evidence(answer_text)
-        validation = validate_answer_citations(
-            answer=answer_text,
-            citations=citations,
-            is_insufficient=is_insufficient,
-        )
+        with trace_stage(
+            "Answer Validation",
+            insufficient_evidence=is_insufficient,
+            citation_count=len(citations),
+        ):
+            validation = validate_answer_citations(
+                answer=answer_text,
+                citations=citations,
+                is_insufficient=is_insufficient,
+            )
 
         return AnswerResult(
             answer=answer_text,

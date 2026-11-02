@@ -12,6 +12,18 @@ import re
 import time
 import uuid
 
+from dotenv import load_dotenv
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_project_environment() -> None:
+    """Load project configuration before importing application modules."""
+    load_dotenv(_PROJECT_ROOT / ".env")
+
+
+_load_project_environment()
+
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -33,6 +45,7 @@ from app.generation.answer_generator import build_answer_generator
 from app.generation.groq_generator import GroqGenerator
 from app.generation.prompt_builder import build_grounded_prompt
 from app.generation.validation import is_insufficient_evidence, validate_answer_citations
+from app.observability.langsmith_tracing import research_query_trace, trace_stage
 
 logger = logging.getLogger("papermind.api")
 
@@ -488,6 +501,21 @@ def query_papermind(
     raw_request: Request,
     response: Response,
 ) -> QueryResponse:
+    request_id = getattr(raw_request.state, "request_id", None) or raw_request.headers.get("x-request-id") or str(uuid.uuid4())
+    with research_query_trace(
+        request_id,
+        document_id=request.document_id,
+        query_length=len(request.query),
+        top_k=request.top_k,
+    ):
+        return _query_papermind_impl(request, raw_request, response)
+
+
+def _query_papermind_impl(
+    request: QueryRequest,
+    raw_request: Request,
+    response: Response,
+) -> QueryResponse:
     """Run the existing PaperMind graph for a PDF path and query with latency and request tracing."""
     start_time = time.perf_counter()
     request_id = getattr(raw_request.state, "request_id", None) or raw_request.headers.get("x-request-id") or str(uuid.uuid4())
@@ -725,6 +753,26 @@ def _stream_query_events(
     source_pdf_path: Path,
     document_id: str,
 ):
+    with research_query_trace(
+        request_id,
+        document_id=document_id,
+        query_length=len(request.query),
+        top_k=request.top_k,
+    ):
+        yield from _stream_query_events_impl(
+            request,
+            request_id,
+            source_pdf_path,
+            document_id,
+        )
+
+
+def _stream_query_events_impl(
+    request: QueryRequest,
+    request_id: str,
+    source_pdf_path: Path,
+    document_id: str,
+):
     processing_succeeded = False
     try:
         if request.document_id:
@@ -782,24 +830,30 @@ def _stream_query_events(
                 update_document_status(request.document_id, "ready")
             return
 
-        prompt = build_grounded_prompt(query=request.query, context=context)
-        chunks: list[str] = []
-        try:
-            for chunk in generator.generate_stream(prompt):
-                if not chunk:
-                    continue
-                chunks.append(chunk)
-                yield _sse_event("token", {"text": chunk})
-        except GeneratorExit:
-            return
+        with trace_stage("Grounded Answer Generation", model=generator.model_name):
+            prompt = build_grounded_prompt(query=request.query, context=context)
+            chunks: list[str] = []
+            try:
+                for chunk in generator.generate_stream(prompt):
+                    if not chunk:
+                        continue
+                    chunks.append(chunk)
+                    yield _sse_event("token", {"text": chunk})
+            except GeneratorExit:
+                return
 
         answer = "".join(chunks).strip()
         insufficient = is_insufficient_evidence(answer)
-        validation = validate_answer_citations(
-            answer=answer,
-            citations=context.citations,
-            is_insufficient=insufficient,
-        )
+        with trace_stage(
+            "Answer Validation",
+            insufficient_evidence=insufficient,
+            citation_count=len(context.citations),
+        ):
+            validation = validate_answer_citations(
+                answer=answer,
+                citations=context.citations,
+                is_insufficient=insufficient,
+            )
         yield _sse_event(
             "complete",
             {

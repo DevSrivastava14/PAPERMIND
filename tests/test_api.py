@@ -1,11 +1,12 @@
 import json
 import logging
+import os
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 import pytest
 
-from app.api.main import _sanitize_message, app, generate_document_id
+from app.api.main import _PROJECT_ROOT, _load_project_environment, _sanitize_message, app, generate_document_id
 from app.multimodal.collection import MultimodalDocument
 from app.multimodal.representation import ElementType, MultimodalElement
 from app.retrieval.multimodal_models import (
@@ -16,6 +17,18 @@ from app.indexing.multimodal_models import MultimodalSearchResult
 
 
 client = TestClient(app)
+
+
+def test_project_environment_loader_uses_repository_root_without_overriding_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LANGSMITH_PROJECT", "process-project")
+
+    with patch("app.api.main.load_dotenv") as load_dotenv:
+        _load_project_environment()
+
+    load_dotenv.assert_called_once_with(_PROJECT_ROOT / ".env")
+    assert os.environ["LANGSMITH_PROJECT"] == "process-project"
 
 
 def test_evaluation_artifact_listing_is_allowlisted() -> None:

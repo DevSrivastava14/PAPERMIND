@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Sequence
 
 
+
 @dataclass
 class CitationValidationResult:
     """Structured result of lightweight citation and provenance validation."""

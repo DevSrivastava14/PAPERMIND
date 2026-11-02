@@ -5,6 +5,7 @@ pillow==12.3.0
 numpy==2.5.4
 pydantic==2.14.1
 langgraph==1.2.16
+langsmith==0.14.12
 fastapi==0.159.1
 uvicorn==0.54.0
 openai==3.35.1
