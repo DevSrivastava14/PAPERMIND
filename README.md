@@ -94,14 +94,14 @@ The retrieval pipeline processes queries through six distinct stages:
 
 ```mermaid
 flowchart LR
-    Q[Query] --> D[Dense FAISS\n384-d Cosine]
-    Q --> S[Sparse BM25\nOkapi k1=1.5, b=0.75]
-    D --> RRF[Reciprocal Rank Fusion\nk=60]
+    Q["Query"] --> D["Dense FAISS\n384-d Cosine"]
+    Q --> S["Sparse BM25\nOkapi k1=1.5, b=0.75"]
+    D --> RRF["Reciprocal Rank Fusion\nk=60"]
     S --> RRF
-    RRF --> EXP[1-Hop Relationship\nExpansion (Caption to Image)]
-    EXP --> POOL[Candidate Pool\nTop-10 Candidates]
-    POOL --> RERANK[Multimodal Reranker\nText: CE 80% + RRF 20%\nImage: CLIP 80% + RRF 20%]
-    RERANK --> TOPK[Final Top-5\nGrounded Context]
+    RRF --> EXP["1-Hop Relationship\nExpansion (Caption to Image)"]
+    EXP --> POOL["Candidate Pool\nTop-10 Candidates"]
+    POOL --> RERANK["Multimodal Reranker\nText: CE 80% + RRF 20%\nImage: CLIP 80% + RRF 20%"]
+    RERANK --> TOPK["Final Top-5\nGrounded Context"]
 ```
 
 1. **Dual Candidate Generation:** Query is embedded via `sentence-transformers/all-MiniLM-L6-v2` and searched against text and visual FAISS indexes. Simultaneously, deterministic alphanumeric tokenization searches the BM25 inverted index.
