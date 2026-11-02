@@ -24,6 +24,7 @@ from app.generation.groq_generator import GroqGenerator
 from app.generation.models import AnswerResult
 from app.multimodal.collection import MultimodalDocument
 from app.multimodal.representation import ElementType
+from app.documents.cache import DocumentBundle, get_or_build_bundle
 from app.reranking.base import BaseReranker
 from app.retrieval.models import RetrievedContext
 from app.retrieval.multimodal_models import MultimodalRetrievedContext
@@ -125,13 +126,36 @@ class GraphState(TypedDict, total=False):
     candidate_count: Optional[int]
     retrieval_latency_ms: Optional[float]
     llm_latency_ms: Optional[float]
+    skip_generation: bool
+    use_cache: bool
 
 
 def ingest_document(state: GraphState) -> GraphState:
     """Build the multimodal document from the configured PDF."""
+    if state.get("document") is not None:
+        return {"status": "ingestion_complete", "error": None}
     try:
         pdf_path = state["pdf_path"]
         document_id = state.get("document_id")
+        if state.get("use_cache") and document_id:
+            def build_bundle() -> DocumentBundle:
+                cached_document = build_document(
+                    Path(pdf_path), document_id=document_id
+                )
+                cached_pipeline = _build_pipeline_for_document(
+                    cached_document, state.get("top_k", 5)
+                )
+                return DocumentBundle(cached_document, cached_pipeline)
+
+            bundle = get_or_build_bundle(
+                Path(pdf_path), document_id, build_bundle
+            )
+            return {
+                "document": bundle.document,
+                "pipeline": bundle.pipeline,
+                "status": "ingestion_complete",
+                "error": None,
+            }
         if document_id:
             if build_sample_paper_document is not _ORIGINAL_SAMPLE_BUILDER:
                 document = build_sample_paper_document(Path(pdf_path))
@@ -149,38 +173,49 @@ def ingest_document(state: GraphState) -> GraphState:
     }
 
 
+def _build_pipeline_for_document(
+    document: MultimodalDocument,
+    top_k: int,
+    reranker: Optional[BaseReranker] = None,
+) -> MultimodalRetrievalPipeline:
+    if reranker is None:
+        doc_elements = getattr(document, "elements", None)
+        has_images = isinstance(doc_elements, (list, tuple)) and any(
+            getattr(el, "element_type", None) == ElementType.IMAGE
+            for el in doc_elements
+        )
+        if has_images:
+            from app.multimodal.embedding import get_multimodal_embedder
+            from app.reranking.cross_encoder import CrossEncoderReranker
+            from app.reranking.multimodal import MultimodalReranker
+
+            reranker = MultimodalReranker(
+                text_reranker=CrossEncoderReranker(),
+                visual_embedder=get_multimodal_embedder().visual_embedder,
+            )
+    pipeline_kwargs = {
+        "document": document,
+        "default_top_k": top_k,
+    }
+    if reranker is not None:
+        pipeline_kwargs["reranker"] = reranker
+    return create_evaluation_pipeline(**pipeline_kwargs)
+
+
 def build_retrieval_pipeline(state: GraphState) -> GraphState:
     """Construct the existing FAISS, BM25, and reranked retrieval pipeline."""
+    if state.get("pipeline") is not None:
+        return {"status": "indexing_complete", "error": None}
     try:
         document = state["document"]
         if document is None:
             raise ValueError("document is required before pipeline construction")
 
-        reranker = state.get("reranker")
-        if reranker is None:
-            doc_elements = getattr(document, "elements", None)
-            has_images = isinstance(doc_elements, (list, tuple)) and any(
-                getattr(el, "element_type", None) == ElementType.IMAGE
-                for el in doc_elements
-            )
-            if has_images:
-                from app.multimodal.embedding import get_multimodal_embedder
-                from app.reranking.cross_encoder import CrossEncoderReranker
-                from app.reranking.multimodal import MultimodalReranker
-
-                reranker = MultimodalReranker(
-                    text_reranker=CrossEncoderReranker(),
-                    visual_embedder=get_multimodal_embedder().visual_embedder,
-                )
-
-        pipeline_kwargs = {
-            "document": document,
-            "default_top_k": state.get("top_k", 5),
-        }
-        if reranker is not None:
-            pipeline_kwargs["reranker"] = reranker
-
-        pipeline = create_evaluation_pipeline(**pipeline_kwargs)
+        pipeline = _build_pipeline_for_document(
+            document,
+            state.get("top_k", 5),
+            state.get("reranker"),
+        )
     except (KeyError, TypeError, ValueError, RuntimeError, OSError) as exc:
         return {"status": "error", "error": f"Indexing failed: {exc}"}
     except Exception as exc:
@@ -373,6 +408,8 @@ def _after_indexing(state: GraphState) -> Literal["retrieve", "__end__"]:
 
 
 def _after_retrieval(state: GraphState) -> Literal["generate_answer", "__end__"]:
+    if state.get("skip_generation"):
+        return END
     return (
         "generate_answer"
         if state.get("status") == "success" and state.get("context") is not None

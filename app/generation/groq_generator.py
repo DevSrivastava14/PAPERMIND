@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from typing import Optional
 
 from openai import OpenAI
@@ -68,3 +69,19 @@ class GroqGenerator(BaseGenerator):
         )
         content = response.choices[0].message.content
         return content.strip() if content else ""
+
+    def generate_stream(self, prompt: str) -> Iterator[str]:
+        response = self._client.chat.completions.create(
+            model=self._model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self._temperature,
+            stream=True,
+        )
+        for chunk in response:
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            content = getattr(delta, "content", None) if delta is not None else None
+            if content:
+                yield content

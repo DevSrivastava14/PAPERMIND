@@ -402,6 +402,47 @@ function showState(activeEl) {
 }
 
 // ── Query Execution (POST /query) ──────────────────────────────────────────
+async function consumeSSE(response, onEvent) {
+  if (!response.body) throw new Error("Streaming response body is unavailable.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() || "";
+    for (const frame of frames) {
+      const eventMatch = frame.match(/^event:\s*(.+)$/m);
+      const dataMatch = frame.match(/^data:\s*(.+)$/m);
+      if (!dataMatch) continue;
+      await onEvent(
+        eventMatch ? eventMatch[1].trim() : "message",
+        JSON.parse(dataMatch[1]),
+      );
+    }
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    const eventMatch = buffer.match(/^event:\s*(.+)$/m);
+    const dataMatch = buffer.match(/^data:\s*(.+)$/m);
+    if (dataMatch) {
+      await onEvent(
+        eventMatch ? eventMatch[1].trim() : "message",
+        JSON.parse(dataMatch[1]),
+      );
+    }
+  }
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(resolve);
+  });
+}
+
 async function submitQuery() {
   // Prevent duplicate submissions while request is already running
   if (state.isLoading) return;
@@ -452,7 +493,7 @@ async function submitQuery() {
   }
 
   try {
-    const response = await fetch("/query", {
+    const response = await fetch("/query/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -481,11 +522,38 @@ async function submitQuery() {
       throw new Error(sanitizeErrorMessage(detail));
     }
 
-    const data = await response.json();
-    state.lastResult = data;
+    let completed = null;
+    let streamedAnswer = "";
+    await consumeSSE(response, async (event, payload) => {
+      if (event === "retrieval") {
+        state.citations = Array.isArray(payload.citations) ? payload.citations : [];
+        if (dom.contextText) dom.contextText.textContent = payload.grounded_context || "";
+        renderCitations(state.citations);
+        renderTechDetails(payload, requestId);
+      } else if (event === "token") {
+        streamedAnswer += typeof payload.text === "string" ? payload.text : "";
+        if (dom.answerText) {
+          if (dom.stateSuccess?.classList.contains("hidden")) {
+            showState(dom.stateSuccess);
+          }
+          dom.answerText.textContent = streamedAnswer;
+          await waitForNextPaint();
+        }
+      } else if (event === "error") {
+        throw new Error(payload.error || "Streaming generation failed.");
+      } else if (event === "complete") {
+        completed = {
+          ...payload,
+          answer: payload.answer || streamedAnswer,
+          citations: Array.isArray(payload.citations) ? payload.citations : state.citations,
+        };
+      }
+    });
+    if (!completed) throw new Error("The answer stream ended before completion.");
+    state.lastResult = completed;
     state.lastRequestId = requestId;
-    state.citations = Array.isArray(data.citations) ? data.citations : [];
-    renderResult(data, requestId);
+    state.citations = Array.isArray(completed.citations) ? completed.citations : [];
+    renderResult(completed, requestId);
     if (state.currentDocumentId) await loadUploadedDocuments();
 
   } catch (err) {

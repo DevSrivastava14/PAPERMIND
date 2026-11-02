@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
 
 class BaseGenerator(ABC):
@@ -25,3 +26,11 @@ class BaseGenerator(ABC):
             The model's response as a plain string.
         """
         pass
+
+    def generate_stream(self, prompt: str) -> Iterator[str]:
+        """Yield provider-generated text chunks for a prompt.
+
+        Providers with native streaming should override this method. The fallback
+        preserves compatibility for existing generator implementations.
+        """
+        yield self.generate(prompt)

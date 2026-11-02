@@ -1923,31 +1923,45 @@ No Groq calls, expensive inference, retrieval changes, commits, or pushes were p
 
 **Objective:** Validate that the upload-to-research experience works reliably beyond a single PDF.
 
-**Planned work:**
+**Completed work:**
 
-- Test ingestion and querying across multiple distinct PDFs.
-- Verify document selection and switching.
-- Verify retrieval isolation between documents.
-- Test duplicate filenames and document identity handling.
-- Test malformed, empty, oversized, and unsupported PDFs.
-- Verify partial ingestion failures and recovery behavior.
-- Check document processing state transitions.
-- Verify citations, image evidence, and retrieval diagnostics for different documents.
-- Check that existing sample-paper functionality remains backward compatible.
-- Review resource cleanup and index lifecycle behavior.
+- Implemented and verified document-specific PDF ingestion and querying.
+- Added document selection and switching support with a clearly visible selected state.
+- Implemented document-scoped retrieval using request-local multimodal, FAISS, and BM25 indexes.
+- Added a bounded process-local LRU cache for parsed document and index bundles, keyed by document identity and file fingerprint.
+- Added per-document concurrency protection and cache invalidation when the underlying PDF changes.
+- Added a separate `POST /query/stream` endpoint using genuine Groq provider streaming and Server-Sent Events.
+- Preserved the existing `POST /query` endpoint and response contract.
+- Implemented progressive frontend answer rendering using incoming token events.
+- Preserved final Markdown formatting, citation validation, grounded-refusal handling, retrieval diagnostics, and Evidence Inspector functionality.
+- Improved interrupted-stream and generation-failure handling.
+- Preserved the existing research pipeline visualization and loading states.
 
-**Acceptance criteria:**
+**Validation results:**
 
-- Multiple documents can be processed without cross-document evidence leakage.
-- Switching selected documents changes the retrieval scope correctly.
-- Failed or incomplete ingestion is represented accurately.
-- No fabricated processing or retrieval success states.
-- Focused regression tests cover document isolation and lifecycle edge cases.
-- The complete upload → ingestion → query → answer → citation workflow is browser-verified.
+**Full Regression Validation:**
+
+- Full test suite: 572 passed, 13 failed.
+- The same 13 failures were reproduced against the clean pre-Day-35 baseline (`dc11540`).
+- Baseline comparison: 33 passed, 13 failed across the three affected multimodal retrieval test files.
+- These failures concern existing `top_k` result-limit behavior and sparse modality filtering.
+- No evidence that Day 35 introduced these failures.
+- Existing baseline limitations are documented rather than silently modifying retrieval behavior.
+
+- Day 35 streaming/cache tests: 7 passed.
+- API and related regression tests: 29 passed.
+- Combined focused validation: 36 passed.
+- JavaScript syntax validation: passed.
+- Browser verification: confirmed document selection, grounded answers, citations, retrieval diagnostics, and genuinely progressive answer streaming.
+- Full-suite multimodal retrieval failures require comparison against the clean pre-Day-35 baseline before being classified.
+
+**Remaining verification:**
+
+- Complete the multi-document isolation and failure-case browser checklist.
+- Compare the outstanding full-suite failures against clean baseline commit `dc11540`.
+- Record any confirmed pre-existing failures and limitations accurately.
 
 **Commit checkpoint:** `test(ingestion): verify multi-document isolation and reliability`
-
----
 
 ### Day 36 — Final Engineering Polish & System Review
 

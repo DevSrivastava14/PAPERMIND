@@ -15,7 +15,7 @@ import uuid
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -29,6 +29,10 @@ from app.documents.manager import (
     save_uploaded_pdf,
     update_document_status,
 )
+from app.generation.answer_generator import build_answer_generator
+from app.generation.groq_generator import GroqGenerator
+from app.generation.prompt_builder import build_grounded_prompt
+from app.generation.validation import is_insufficient_evidence, validate_answer_citations
 
 logger = logging.getLogger("papermind.api")
 
@@ -274,6 +278,12 @@ def _categorize_error(error_msg: str) -> str:
     return "graph_error"
 
 
+def _is_document_processing_failure(error_msg: str) -> bool:
+    return error_msg.lower().startswith(
+        ("ingestion failed", "indexing failed", "retrieval failed")
+    )
+
+
 def _image_data_url(element: MultimodalElement) -> str | None:
     """Returns an inline image payload without exposing its filesystem path."""
     image_data = element.image_data
@@ -376,6 +386,56 @@ def _result_diagnostics(
     return RetrievalDiagnosticsResponse(**values)
 
 
+def _retrieval_response_fields(
+    state: GraphState,
+    request: QueryRequest,
+    document_id: str,
+) -> dict[str, object]:
+    context = state["context"]
+    document = state.get("document")
+    search_results = getattr(context, "search_results", None) or []
+    citations: list[CitationResponse] = []
+    for final_rank, citation in enumerate(context.citations, start=1):
+        result = next(
+            (
+                candidate
+                for candidate in search_results
+                if getattr(candidate, "element_id", None) == citation.element_id
+            ),
+            None,
+        )
+        citation_kwargs = {
+            "citation_label": citation.citation_label,
+            "element_id": citation.element_id,
+            "element_type": citation.element_type.value,
+            "source_filename": citation.source_filename,
+            "page_number": citation.page_number,
+            "score": citation.score,
+            **_citation_metadata(citation, context, document),
+        }
+        diagnostics = _result_diagnostics(result, final_rank)
+        if diagnostics is not None:
+            citation_kwargs["diagnostics"] = diagnostics
+        citations.append(CitationResponse(**citation_kwargs))
+
+    pipeline = state.get("pipeline")
+    reranker = getattr(pipeline, "reranker", None) or state.get("reranker")
+    candidate_count = getattr(context, "candidate_count", None) or state.get("candidate_count")
+    result_count = len(citations)
+    fields: dict[str, object] = {
+        "grounded_context": context.formatted_context,
+        "citations": citations,
+    }
+    if any(value is not None for value in (candidate_count, reranker, state.get("retrieval_latency_ms"))):
+        fields["retrieval_diagnostics"] = RetrievalRunDiagnosticsResponse(
+            candidate_count=candidate_count,
+            result_count=result_count,
+            reranker=type(reranker).__name__ if reranker is not None else None,
+            retrieval_latency_ms=state.get("retrieval_latency_ms"),
+        )
+    return fields
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     """Lightweight health check endpoint returning API health status."""
@@ -468,6 +528,7 @@ def query_papermind(
                 "top_k": request.top_k,
                 "request_id": request_id,
                 "document_id": document_id,
+                "use_cache": True,
             }
         )
     except Exception as exc:
@@ -496,13 +557,18 @@ def query_papermind(
         )
 
     if state.get("status") == "error":
-        if request.document_id:
+        raw_error = state.get("error") or "PaperMind graph failed"
+        if request.document_id and _is_document_processing_failure(raw_error):
             try:
                 update_document_status(request.document_id, "failed")
             except (KeyError, OSError):
                 pass
+        elif request.document_id:
+            try:
+                update_document_status(request.document_id, "ready")
+            except (KeyError, OSError):
+                pass
         total_latency_ms = (time.perf_counter() - start_time) * 1000.0
-        raw_error = state.get("error") or "PaperMind graph failed"
         category = _categorize_error(raw_error)
         sanitized_error = _sanitize_message(raw_error)
         _log_event(
@@ -647,3 +713,142 @@ def query_papermind(
         kwargs["insufficient_evidence"] = insufficient_evidence
 
     return QueryResponse(**kwargs)
+
+
+def _sse_event(event: str, payload: dict[str, object]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+def _stream_query_events(
+    request: QueryRequest,
+    request_id: str,
+    source_pdf_path: Path,
+    document_id: str,
+):
+    processing_succeeded = False
+    try:
+        if request.document_id:
+            update_document_status(request.document_id, "processing")
+        state: GraphState = graph.invoke(
+            {
+                "pdf_path": str(source_pdf_path),
+                "query": request.query,
+                "top_k": request.top_k,
+                "request_id": request_id,
+                "document_id": document_id,
+                "use_cache": True,
+                "skip_generation": True,
+            }
+        )
+        if state.get("status") != "success" or state.get("context") is None:
+            raw_error = state.get("error") or "PaperMind graph failed"
+            if request.document_id and _is_document_processing_failure(raw_error):
+                update_document_status(request.document_id, "failed")
+            yield _sse_event("error", {"error": _sanitize_message(raw_error)})
+            return
+
+        processing_succeeded = True
+        fields = _retrieval_response_fields(state, request, document_id)
+        retrieval_payload = {
+            "request_id": request_id,
+            "grounded_context": fields["grounded_context"],
+            "citations": [
+                citation.model_dump(exclude_none=True)
+                for citation in fields["citations"]
+            ],
+        }
+        diagnostics = fields.get("retrieval_diagnostics")
+        if diagnostics is not None:
+            retrieval_payload["retrieval_diagnostics"] = diagnostics.model_dump(exclude_none=True)
+        yield _sse_event("retrieval", retrieval_payload)
+
+        context = state["context"]
+        generator = GroqGenerator()
+        answer_generator = build_answer_generator(generator)
+        if not context.citations or not str(context.formatted_context).strip():
+            result = answer_generator.generate_from_context(
+                query=request.query, context=context
+            )
+            yield _sse_event(
+                "complete",
+                {
+                    "answer": result.answer,
+                    "insufficient_evidence": result.insufficient_evidence,
+                    "citations": retrieval_payload["citations"],
+                    "retrieval_diagnostics": retrieval_payload.get("retrieval_diagnostics"),
+                },
+            )
+            if request.document_id:
+                update_document_status(request.document_id, "ready")
+            return
+
+        prompt = build_grounded_prompt(query=request.query, context=context)
+        chunks: list[str] = []
+        try:
+            for chunk in generator.generate_stream(prompt):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                yield _sse_event("token", {"text": chunk})
+        except GeneratorExit:
+            return
+
+        answer = "".join(chunks).strip()
+        insufficient = is_insufficient_evidence(answer)
+        validation = validate_answer_citations(
+            answer=answer,
+            citations=context.citations,
+            is_insufficient=insufficient,
+        )
+        yield _sse_event(
+            "complete",
+            {
+                "answer": answer,
+                "insufficient_evidence": insufficient,
+                "citation_validation": validation.__dict__,
+                "citations": retrieval_payload["citations"],
+                "retrieval_diagnostics": retrieval_payload.get("retrieval_diagnostics"),
+            },
+        )
+        if request.document_id:
+            update_document_status(request.document_id, "ready")
+    except Exception as exc:
+        if request.document_id:
+            try:
+                update_document_status(
+                    request.document_id,
+                    "ready" if processing_succeeded else "failed",
+                )
+            except (KeyError, OSError):
+                pass
+        yield _sse_event("error", {"error": _sanitize_message(str(exc))})
+
+
+@app.post("/query/stream")
+def stream_query_papermind(
+    request: QueryRequest,
+    raw_request: Request,
+    response: Response,
+) -> StreamingResponse:
+    """Stream retrieval metadata and provider-generated answer chunks over SSE."""
+    request_id = (
+        getattr(raw_request.state, "request_id", None)
+        or raw_request.headers.get("x-request-id")
+        or str(uuid.uuid4())
+    )
+    if request.document_id:
+        uploaded_document = get_document(request.document_id)
+        if uploaded_document is None:
+            raise HTTPException(status_code=404, detail="Unknown document")
+        source_pdf_path = Path(str(uploaded_document["path"]))
+        document_id = request.document_id
+    else:
+        source_pdf_path = Path(request.pdf_path or "")
+        document_id = generate_document_id(request.pdf_path or "")
+
+    response.headers["X-Request-ID"] = request_id
+    return StreamingResponse(
+        _stream_query_events(request, request_id, source_pdf_path, document_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Request-ID": request_id},
+    )
