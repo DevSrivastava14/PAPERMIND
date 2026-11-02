@@ -98,7 +98,7 @@ flowchart LR
     Q --> S[Sparse BM25\nOkapi k1=1.5, b=0.75]
     D --> RRF[Reciprocal Rank Fusion\nk=60]
     S --> RRF
-    RRF --> EXP[1-Hop Relationship\nExpansion (Caption -> Image)]
+    RRF --> EXP[1-Hop Relationship\nExpansion (Caption to Image)]
     EXP --> POOL[Candidate Pool\nTop-10 Candidates]
     POOL --> RERANK[Multimodal Reranker\nText: CE 80% + RRF 20%\nImage: CLIP 80% + RRF 20%]
     RERANK --> TOPK[Final Top-5\nGrounded Context]
