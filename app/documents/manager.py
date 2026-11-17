@@ -13,6 +13,7 @@ from typing import BinaryIO
 
 import pymupdf
 
+from app.documents.cache import invalidate_document_cache
 from app.ingestion.pdf_parser import get_max_pdf_size_bytes, parse_research_paper
 
 
@@ -20,6 +21,8 @@ DEFAULT_UPLOAD_ROOT = Path("data/uploads")
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 PDF_SIGNATURE = b"%PDF-"
 DOCUMENT_STATUSES = {"uploaded", "processing", "ready", "failed"}
+_DOCUMENT_ID_RE = re.compile(r"^doc-[0-9a-f]{32}$")
+_UNSAFE_DELETE = "The document cannot be removed"
 
 
 def get_upload_root() -> Path:
@@ -112,6 +115,67 @@ def get_document(document_id: str) -> dict[str, object] | None:
     result = dict(row)
     result["path"] = root / str(result["storage_filename"])
     return result
+
+
+def _registered_upload_path(root: Path, document_id: str, storage_filename: str) -> Path:
+    """Resolve one server-generated upload name and reject anything outside that root."""
+    expected_name = f"{document_id}.pdf"
+    if storage_filename != expected_name or Path(storage_filename).name != storage_filename:
+        raise ValueError(_UNSAFE_DELETE)
+    candidate = root / storage_filename
+    if candidate.is_symlink():
+        raise ValueError(_UNSAFE_DELETE)
+    resolved = candidate.resolve()
+    if resolved.parent != root or not resolved.is_relative_to(root):
+        raise ValueError(_UNSAFE_DELETE)
+    if resolved.exists() and not resolved.is_file():
+        raise ValueError(_UNSAFE_DELETE)
+    return resolved
+
+
+def _delete_registry_row(connection: sqlite3.Connection, document_id: str) -> None:
+    cursor = connection.execute(
+        "DELETE FROM documents WHERE document_id = ?",
+        (document_id,),
+    )
+    if cursor.rowcount != 1:
+        raise KeyError(document_id)
+
+
+def delete_uploaded_document(document_id: str) -> dict[str, object]:
+    """Remove one uploaded document, its file, and its cached index bundle.
+
+    Only registry records with server-generated ids can be deleted. Sample papers,
+    evaluation artifacts, and paths outside the upload root are never touched.
+    """
+    if not _DOCUMENT_ID_RE.fullmatch(document_id or ""):
+        raise KeyError(document_id)
+    record = get_document(document_id)
+    if record is None:
+        raise KeyError(document_id)
+
+    root = get_upload_root().resolve()
+    file_path = _registered_upload_path(root, document_id, str(record["storage_filename"]))
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError:
+        raise
+
+    try:
+        with _connect(root) as connection:
+            _delete_registry_row(connection, document_id)
+            connection.commit()
+    except Exception:
+        if not file_path.exists():
+            invalidate_document_cache(document_id)
+        raise
+
+    invalidate_document_cache(document_id)
+    return {
+        "document_id": document_id,
+        "filename": record["filename"],
+        "removed": True,
+    }
 
 
 def update_document_status(document_id: str, status: str) -> None:

@@ -1,3 +1,6 @@
+import { formatSavedMetric } from "./evaluationDisplay.js";
+import { createQuerySession, documentSelectionKey } from "./querySession.js";
+
 /**
  * PaperMind — Three-Panel Research Workspace Script
  *
@@ -17,6 +20,9 @@
  */
 
 // ── State ──────────────────────────────────────────────────────────────────
+const querySession = createQuerySession();
+let activeQueryController = null;
+
 const state = {
   currentPdf: /** @type {string|null} */ (null),
   currentDocumentId: /** @type {string|null} */ (null),
@@ -45,12 +51,12 @@ const dom = {
   statusDot:         $("system-status")?.querySelector(".status-dot"),
 
   // Document Library (Left)
-  pdfInput:          $("pdf-filename"),
-  loadPaperBtn:      $("load-paper-btn"),
   activePaperBox:    $("active-paper-display"),
   activePaperName:   $("active-paper-name"),
+  activePaperBadge:  $("active-paper-badge"),
   activePaperStatus: $("active-paper-status"),
   presetList:        $("preset-list"),
+  libraryFeedback:   $("library-feedback"),
   uploadInput:       $("pdf-upload-input"),
   uploadStatus:      $("upload-status"),
 
@@ -81,6 +87,7 @@ const dom = {
   evaluationSelect:  $("evaluation-artifact-select"),
   evaluationLoadBtn: $("evaluation-load-btn"),
   evaluationStatus:  $("evaluation-status"),
+  evaluationDescription: $("evaluation-description"),
   evaluationMeta:    $("evaluation-meta"),
   evaluationSummary: $("evaluation-summary"),
   evaluationQuestions:$("evaluation-questions"),
@@ -180,52 +187,115 @@ function getResolvedPdfPath(rawPath) {
   return `data/${normalized}`;
 }
 
+function currentSelectionKey() {
+  return documentSelectionKey(state.currentDocumentId, state.currentPdf);
+}
+
+function abandonDisplayedQuery() {
+  if (activeQueryController) {
+    activeQueryController.abort();
+    activeQueryController = null;
+  }
+  state.isLoading = false;
+  state.lastResult = null;
+  state.citations = [];
+  state.selectedCitationIdx = 0;
+  dom.techPanel?.classList.add("hidden");
+  if (dom.citationCount) dom.citationCount.textContent = "0 cited";
+  if (dom.citationList) dom.citationList.innerHTML = "";
+  if (dom.inspectorEmptyTip) dom.inspectorEmptyTip.classList.remove("hidden");
+  if (dom.inspectorActive) dom.inspectorActive.classList.add("hidden");
+  if (dom.answerText) dom.answerText.replaceChildren();
+  if (dom.contextText) dom.contextText.textContent = "";
+  showState(dom.stateEmpty);
+  updateSubmitState();
+}
+
+function adoptDocumentSelection(documentInfo) {
+  const changed = querySession.select(currentSelectionKey());
+  updateActiveDocumentDisplay(documentInfo);
+  if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
+  updateDocumentSelectionVisuals();
+  if (changed) abandonDisplayedQuery();
+  else updateSubmitState();
+}
+
 function selectPaper(filename) {
   if (!filename || typeof filename !== "string") return;
 
   const cleanName = filename.trim();
-  if (!cleanName.toLowerCase().endsWith(".pdf")) {
-    showValidationError(dom.pdfInput, "Filename must end with .pdf");
-    return;
-  }
+  if (!cleanName.toLowerCase().endsWith(".pdf")) return;
 
   state.currentPdf = cleanName;
   state.currentDocumentId = null;
-  updateActiveDocumentDisplay({
+  adoptDocumentSelection({
     filename: cleanName,
     status: "ready",
   });
-
-  if (dom.pdfInput) dom.pdfInput.value = cleanName;
-  if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
-
-  updateDocumentSelectionVisuals();
-
-  updateSubmitState();
 }
 
 function formatDocumentStatus(status) {
   switch (status) {
     case "ready":
-      return "Grounded multi-modal indexing ready";
+      return "Ready for questions";
     case "processing":
       return "Processing document…";
     case "failed":
-      return "Document ingestion failed";
+      return "Processing failed";
     case "uploaded":
     default:
-      return "Uploaded · ready for processing";
+      return "Uploaded · not processed yet";
   }
+}
+
+function formatDocumentCardStatus(status) {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "processing":
+      return "Processing";
+    case "failed":
+      return "Failed";
+    case "uploaded":
+    default:
+      return "Uploaded";
+  }
+}
+
+function formatActiveBadge(status) {
+  switch (status) {
+    case "processing":
+      return "Processing";
+    case "failed":
+      return "Error";
+    case "uploaded":
+      return "Uploaded";
+    case "ready":
+    default:
+      return "Ready";
+  }
+}
+
+function setLibraryFeedback(message, tone) {
+  if (!dom.libraryFeedback) return;
+  dom.libraryFeedback.textContent = message || "";
+  if (tone) dom.libraryFeedback.dataset.tone = tone;
+  else delete dom.libraryFeedback.dataset.tone;
 }
 
 function updateActiveDocumentDisplay(documentInfo) {
   const filename = documentInfo?.filename || "Uploaded PDF";
   const status = documentInfo?.status || "uploaded";
-  if (dom.activePaperName) dom.activePaperName.textContent = filename;
+  if (dom.activePaperName) {
+    dom.activePaperName.textContent = filename;
+    dom.activePaperName.title = filename;
+  }
   if (dom.activePaperStatus) {
     dom.activePaperStatus.textContent = formatDocumentStatus(status);
     dom.activePaperStatus.dataset.status = status;
   }
+  if (dom.activePaperBox) dom.activePaperBox.dataset.status = status;
+  if (dom.activePaperBadge) dom.activePaperBadge.textContent = formatActiveBadge(status);
 }
 
 function updateDocumentSelectionVisuals() {
@@ -241,15 +311,129 @@ function updateDocumentSelectionVisuals() {
   });
 }
 
+function selectUploadedDocument(uploadedDocument) {
+  state.currentDocumentId = uploadedDocument.document_id || null;
+  state.currentPdf = uploadedDocument.filename || null;
+  adoptDocumentSelection(uploadedDocument);
+}
+
+function removalErrorMessage(status) {
+  if (status === 404) return "That document is no longer available.";
+  if (status === 400) return "This document cannot be removed.";
+  return "The document could not be removed.";
+}
+
+function clearResearchWorkspace() {
+  querySession.invalidate();
+  abandonDisplayedQuery();
+}
+
+function appendRemoveControl(item, uploadedDocument) {
+  const actions = document.createElement("div");
+  actions.className = "doc-item-actions";
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "doc-remove-btn";
+  removeButton.setAttribute(
+    "aria-label",
+    `Remove ${uploadedDocument.filename || "uploaded document"}`,
+  );
+  removeButton.title = "Remove document";
+  removeButton.innerHTML = `
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3.5 4.5h9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M6.5 4.5V3.2a.7.7 0 0 1 .7-.7h1.6a.7.7 0 0 1 .7.7V4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M4.5 4.5l.6 8.1a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.1" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+    </svg>`;
+  removeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openRemovalConfirmation(item, uploadedDocument);
+  });
+  actions.appendChild(removeButton);
+  item.appendChild(actions);
+}
+
+function openRemovalConfirmation(item, uploadedDocument) {
+  dom.presetList?.querySelectorAll(".doc-confirm").forEach((confirm) => confirm.remove());
+  const confirm = document.createElement("div");
+  confirm.className = "doc-confirm";
+  const prompt = document.createElement("p");
+  prompt.textContent = "Remove this uploaded document and its indexed data?";
+  const actions = document.createElement("div");
+  actions.className = "doc-confirm-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "doc-confirm-cancel";
+  cancel.textContent = "Cancel";
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "doc-confirm-remove";
+  remove.textContent = "Remove";
+  cancel.addEventListener("click", (event) => {
+    event.stopPropagation();
+    confirm.remove();
+  });
+  remove.addEventListener("click", (event) => {
+    event.stopPropagation();
+    confirm.remove();
+    removeUploadedDocument(item, uploadedDocument);
+  });
+  actions.append(cancel, remove);
+  confirm.append(prompt, actions);
+  confirm.addEventListener("click", (event) => event.stopPropagation());
+  item.appendChild(confirm);
+  cancel.focus();
+}
+
+async function removeUploadedDocument(item, uploadedDocument) {
+  const removeButton = item.querySelector(".doc-remove-btn");
+  if (removeButton) removeButton.disabled = true;
+  const filename = uploadedDocument.filename || "Uploaded document";
+  setLibraryFeedback(`Removing ${filename}…`);
+  try {
+    const response = await fetch(
+      `/documents/${encodeURIComponent(uploadedDocument.document_id)}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok) throw new Error(removalErrorMessage(response.status));
+    const wasActive = state.currentDocumentId === uploadedDocument.document_id;
+    const refreshed = await loadUploadedDocuments();
+    if (wasActive) {
+      clearResearchWorkspace();
+      selectPaper("sample_paper.pdf");
+    }
+    setLibraryFeedback(
+      refreshed
+        ? `Removed ${filename}.`
+        : `Removed ${filename}, but the document list could not be refreshed.`,
+      refreshed ? "success" : "error",
+    );
+  } catch (error) {
+    if (removeButton) removeButton.disabled = false;
+    setLibraryFeedback(error.message || "The document could not be removed.", "error");
+    if (error.message === "That document is no longer available.") {
+      const wasActive = state.currentDocumentId === uploadedDocument.document_id;
+      await loadUploadedDocuments();
+      if (wasActive) {
+        clearResearchWorkspace();
+        selectPaper("sample_paper.pdf");
+      }
+    }
+  }
+}
+
 function renderUploadedDocuments(documents) {
   if (!dom.presetList) return;
   dom.presetList.querySelectorAll(".uploaded-doc-item").forEach((item) => item.remove());
   documents.forEach((uploadedDocument) => {
+    const filename = uploadedDocument.filename || "Uploaded PDF";
+    const status = uploadedDocument.status || "uploaded";
     const item = document.createElement("div");
     item.className = "doc-item-btn uploaded-doc-item";
     item.dataset.documentId = uploadedDocument.document_id || "";
-    item.dataset.filename = uploadedDocument.filename || "";
-    item.dataset.status = uploadedDocument.status || "uploaded";
+    item.dataset.filename = filename;
+    item.dataset.status = status;
+    item.dataset.origin = "upload";
     item.setAttribute("role", "button");
     item.setAttribute("tabindex", "0");
 
@@ -260,33 +444,44 @@ function renderUploadedDocuments(documents) {
     info.className = "doc-item-info";
     const name = document.createElement("span");
     name.className = "doc-item-name";
-    name.textContent = uploadedDocument.filename || "Uploaded PDF";
-    const status = document.createElement("span");
-    status.className = "doc-item-type";
-    status.textContent = formatDocumentStatus(uploadedDocument.status);
-    info.append(name, status);
+    name.textContent = filename;
+    name.title = filename;
+    const statusLine = document.createElement("span");
+    statusLine.className = "doc-status-line";
+    const dot = document.createElement("span");
+    dot.className = "doc-status-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const statusLabel = document.createElement("span");
+    statusLabel.className = "doc-item-type";
+    statusLabel.textContent = formatDocumentCardStatus(status);
+    statusLine.append(dot, statusLabel);
+    info.append(name, statusLine);
+    item.appendChild(info);
+    appendRemoveControl(item, uploadedDocument);
     item.addEventListener("click", (event) => {
-      event?.stopPropagation?.();
-      state.currentDocumentId = uploadedDocument.document_id || null;
-      state.currentPdf = uploadedDocument.filename || null;
-      updateActiveDocumentDisplay(uploadedDocument);
-      if (dom.activePaperBox) dom.activePaperBox.classList.remove("hidden");
-      updateDocumentSelectionVisuals();
-      updateSubmitState();
+      if (event.target.closest(".doc-remove-btn, .doc-confirm")) return;
+      selectUploadedDocument(uploadedDocument);
     });
     item.addEventListener("keydown", (event) => {
+      if (event.target !== item) return;
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        item.click();
+        selectUploadedDocument(uploadedDocument);
       }
     });
-    item.appendChild(info);
     dom.presetList.appendChild(item);
   });
   const selectedDocument = documents.find(
     (documentInfo) => documentInfo.document_id === state.currentDocumentId,
   );
   if (selectedDocument) updateActiveDocumentDisplay(selectedDocument);
+  else if (
+    state.currentDocumentId &&
+    !documents.some((documentInfo) => documentInfo.document_id === state.currentDocumentId)
+  ) {
+    clearResearchWorkspace();
+    selectPaper("sample_paper.pdf");
+  }
   updateDocumentSelectionVisuals();
 }
 
@@ -296,8 +491,10 @@ async function loadUploadedDocuments() {
     if (!response.ok) throw new Error("Unable to load uploaded documents");
     const payload = await response.json();
     renderUploadedDocuments(Array.isArray(payload.documents) ? payload.documents : []);
+    return true;
   } catch {
     if (dom.uploadStatus) dom.uploadStatus.textContent = "Uploaded document list is unavailable.";
+    return false;
   }
 }
 
@@ -453,13 +650,17 @@ async function submitQuery() {
     return;
   }
   if (!state.currentPdf) {
-    showValidationError(dom.pdfInput, "Please select or enter a paper filename first.");
+    setLibraryFeedback("Select a document before asking a question.", "error");
     return;
   }
 
   const rawTopK = parseInt(dom.topKInput?.value, 10);
   const safeTopK = Number.isFinite(rawTopK) && rawTopK > 0 ? rawTopK : 5;
 
+  if (activeQueryController) activeQueryController.abort();
+  const ticket = querySession.begin();
+  const controller = new AbortController();
+  activeQueryController = controller;
   state.isLoading = true;
   updateSubmitState();
 
@@ -477,6 +678,7 @@ async function submitQuery() {
   let stageIdx = 0;
   if (dom.loadingStage) dom.loadingStage.textContent = stages[0];
   const stageTimer = setInterval(() => {
+    if (!querySession.isCurrent(ticket)) return;
     stageIdx = (stageIdx + 1) % stages.length;
     if (dom.loadingStage) dom.loadingStage.textContent = stages[stageIdx];
   }, 2200);
@@ -499,7 +701,9 @@ async function submitQuery() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    if (!querySession.isCurrent(ticket)) return;
 
     // Capture X-Request-ID response header
     requestId = response.headers.get("X-Request-ID") || response.headers.get("x-request-id") || null;
@@ -524,14 +728,15 @@ async function submitQuery() {
 
     let completed = null;
     let streamedAnswer = "";
-    await consumeSSE(response, async (event, payload) => {
+    await consumeSSE(response, async (event, eventPayload) => {
+      if (!querySession.isCurrent(ticket)) return;
       if (event === "retrieval") {
-        state.citations = Array.isArray(payload.citations) ? payload.citations : [];
-        if (dom.contextText) dom.contextText.textContent = payload.grounded_context || "";
+        state.citations = Array.isArray(eventPayload.citations) ? eventPayload.citations : [];
+        if (dom.contextText) dom.contextText.textContent = eventPayload.grounded_context || "";
         renderCitations(state.citations);
-        renderTechDetails(payload, requestId);
+        renderTechDetails(eventPayload, requestId);
       } else if (event === "token") {
-        streamedAnswer += typeof payload.text === "string" ? payload.text : "";
+        streamedAnswer += typeof eventPayload.text === "string" ? eventPayload.text : "";
         if (dom.answerText) {
           if (dom.stateSuccess?.classList.contains("hidden")) {
             showState(dom.stateSuccess);
@@ -540,26 +745,25 @@ async function submitQuery() {
           await waitForNextPaint();
         }
       } else if (event === "error") {
-        throw new Error(payload.error || "Streaming generation failed.");
+        throw new Error(eventPayload.error || "Streaming generation failed.");
       } else if (event === "complete") {
         completed = {
-          ...payload,
-          answer: payload.answer || streamedAnswer,
-          citations: Array.isArray(payload.citations) ? payload.citations : state.citations,
+          ...eventPayload,
+          answer: eventPayload.answer || streamedAnswer,
+          citations: Array.isArray(eventPayload.citations) ? eventPayload.citations : state.citations,
         };
       }
     });
+    if (!querySession.isCurrent(ticket)) return;
     if (!completed) throw new Error("The answer stream ended before completion.");
     state.lastResult = completed;
     state.lastRequestId = requestId;
     state.citations = Array.isArray(completed.citations) ? completed.citations : [];
     renderResult(completed, requestId);
-    if (state.currentDocumentId) await loadUploadedDocuments();
+    if (querySession.isCurrent(ticket) && state.currentDocumentId) await loadUploadedDocuments();
 
   } catch (err) {
-    clearInterval(stageTimer);
-    state.isLoading = false;
-    updateSubmitState();
+    if (!querySession.isCurrent(ticket) || err?.name === "AbortError") return;
 
     let safeMsg = err.message || "An unexpected error occurred during synthesis.";
     if (safeMsg.includes("Failed to fetch") || safeMsg.includes("NetworkError")) {
@@ -570,12 +774,14 @@ async function submitQuery() {
     if (requestId && dom.footerRequestId) {
       dom.footerRequestId.textContent = `trace: ${requestId}`;
     }
-    return;
+  } finally {
+    clearInterval(stageTimer);
+    if (querySession.isCurrent(ticket)) {
+      state.isLoading = false;
+      if (activeQueryController === controller) activeQueryController = null;
+      updateSubmitState();
+    }
   }
-
-  clearInterval(stageTimer);
-  state.isLoading = false;
-  updateSubmitState();
 }
 
 // ── Render Results ─────────────────────────────────────────────────────────
@@ -1069,11 +1275,100 @@ function addEvaluationText(parent, tag, text, className = "") {
   return node;
 }
 
-function formatEvaluationValue(metric) {
-  if (!metric || metric.status === "unavailable") return "Unavailable";
-  if (metric.status === "failed") return metric.error ? `Incomplete: ${metric.error}` : "Incomplete";
-  if (metric.value === null || metric.value === undefined) return "Unavailable";
-  return typeof metric.value === "number" ? metric.value.toFixed(4) : String(metric.value);
+const EVALUATION_LABELS = {
+  dense: "Dense retrieval",
+  bm25: "BM25",
+  hybrid_rrf: "Hybrid (RRF)",
+  hybrid_reranked: "Hybrid reranked",
+  faithfulness: "Faithfulness",
+  answer_relevancy: "Answer relevancy",
+  contextual_relevancy: "Contextual relevancy",
+  contextual_precision: "Contextual precision",
+  contextual_recall: "Contextual recall",
+  partial_recall: "Partial recall",
+  complete_recall: "Complete recall",
+  mrr: "MRR",
+  timestamp: "Recorded",
+  date: "Recorded",
+  total_questions: "Questions",
+  questions: "Questions",
+  top_k: "Results per question",
+  configurations: "Configurations",
+  evaluation_type: "Evaluation type",
+  average_latency_ms: "Average latency",
+  provider: "Judge provider",
+  duration_seconds: "Duration (seconds)",
+  all_configurations_completed: "All configurations completed",
+  generation_model: "Answer model",
+  evaluation_model: "Judge model",
+  api_failures: "API failures",
+  evaluation_rate_limit_events: "Judge rate-limit events",
+  evaluation_rate_limit_waits: "Judge rate-limit waits",
+  evaluation_metric_attempts: "Judge attempts",
+  retrieval_only: "Retrieval only",
+};
+
+function evaluationLabel(value) {
+  const key = String(value);
+  if (EVALUATION_LABELS[key]) return EVALUATION_LABELS[key];
+  return key.replaceAll("_", " ");
+}
+
+function appendSavedMetric(parent, label, metric) {
+  const formatted = formatSavedMetric(metric);
+  addEvaluationText(parent, "p", `${label}: ${formatted.label}`);
+  if (!formatted.detail) return;
+  const technical = document.createElement("details");
+  technical.className = "evaluation-technical";
+  const summary = document.createElement("summary");
+  summary.textContent = "Technical detail";
+  const detail = document.createElement("p");
+  detail.textContent = formatted.detail;
+  technical.append(summary, detail);
+  parent.appendChild(technical);
+}
+
+function formatEvaluationMetadata(metadata) {
+  const entries = [];
+  Object.entries(metadata || {}).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === "") return;
+    if (key === "name" || key === "reproducible_with") return;
+    if (key === "pdf_path") {
+      const filename = String(value).split(/[/\\]/).pop();
+      if (filename) entries.push(["Document", filename]);
+      return;
+    }
+    if (key === "groq_status" && value && typeof value === "object") {
+      if (value.run === false) entries.push(["Answer-quality judge", "Not run"]);
+      return;
+    }
+    if (key === "notes" && Array.isArray(value)) {
+      const notes = value.filter((note) => typeof note === "string" && !/day\s*\d+/i.test(note));
+      if (notes.length) entries.push(["Notes", notes.join(" ")]);
+      return;
+    }
+    if (Array.isArray(value)) {
+      if (!value.length) return;
+      const display = value.every((item) => typeof item !== "object")
+        ? value.map((item) => evaluationLabel(item)).join(", ")
+        : value.map((item) => JSON.stringify(item)).join(", ");
+      entries.push([evaluationLabel(key), display]);
+      return;
+    }
+    if (key === "average_latency_ms" && value && typeof value === "object") {
+      const display = Object.entries(value)
+        .map(([config, latency]) => `${evaluationLabel(config)}: ${latency} ms`)
+        .join(" · ");
+      entries.push(["Average latency", display]);
+      return;
+    }
+    if (typeof value === "object") return;
+    const display = typeof value === "boolean"
+      ? (value ? "Yes" : "No")
+      : (EVALUATION_LABELS[String(value)] || String(value));
+    entries.push([evaluationLabel(key), display]);
+  });
+  return entries;
 }
 
 function renderEvaluationArtifact(artifact) {
@@ -1082,18 +1377,25 @@ function renderEvaluationArtifact(artifact) {
   dom.evaluationSummary.replaceChildren();
   dom.evaluationQuestions.replaceChildren();
 
-  addEvaluationText(dom.evaluationMeta, "span", `${artifact.title} · historical`);
-  addEvaluationText(dom.evaluationMeta, "span", artifact.filename);
-  Object.entries(metadata).forEach(([key, value]) => {
-    if (value === null || value === undefined) return;
-    const display = typeof value === "object" ? JSON.stringify(value) : String(value);
-    addEvaluationText(dom.evaluationMeta, "span", `${key}: ${display}`);
+  addEvaluationText(dom.evaluationMeta, "span", artifact.title || "Saved evaluation");
+  formatEvaluationMetadata(metadata).forEach(([label, value]) => {
+    addEvaluationText(dom.evaluationMeta, "span", `${label}: ${value}`);
   });
+  if (dom.evaluationDescription) {
+    dom.evaluationDescription.textContent = artifact.description || "";
+    dom.evaluationDescription.classList.toggle("hidden", !artifact.description);
+  }
 
   Object.entries(artifact.summary || {}).forEach(([config, metrics]) => {
     Object.entries(metrics).forEach(([name, metric]) => {
-      addEvaluationText(dom.evaluationSummary, "dt", `${config} · ${name}`);
-      addEvaluationText(dom.evaluationSummary, "dd", formatEvaluationValue(metric));
+      const formatted = formatSavedMetric(metric);
+      addEvaluationText(
+        dom.evaluationSummary,
+        "dt",
+        `${evaluationLabel(config)} · ${evaluationLabel(name)}`,
+      );
+      const value = addEvaluationText(dom.evaluationSummary, "dd", formatted.label);
+      if (formatted.detail) value.title = formatted.detail;
     });
   });
 
@@ -1105,18 +1407,20 @@ function renderEvaluationArtifact(artifact) {
     details.appendChild(summary);
     if (question.status) addEvaluationText(details, "p", `Status: ${question.status}`);
     Object.entries(question.configurations || {}).forEach(([config, value]) => {
-      const metricText = value && typeof value === "object" && "status" in value
-        ? formatEvaluationValue(value)
-        : Array.isArray(value)
-          ? `${value.length} retrieved items`
-          : typeof value === "object"
-            ? Object.entries(value).map(([key, item]) => {
-              if (key === "retrieved_evidence" && Array.isArray(item)) return `${key}: ${item.length} items`;
-              if (item === null || item === undefined) return `${key}: unavailable`;
-              return `${key}: ${typeof item === "object" ? JSON.stringify(item) : item}`;
-            }).join(" · ")
-            : String(value);
-      addEvaluationText(details, "p", `${config}: ${metricText}`);
+      if (value && typeof value === "object" && "status" in value) {
+        appendSavedMetric(details, evaluationLabel(config), value);
+        return;
+      }
+      const metricText = Array.isArray(value)
+        ? `${value.length} retrieved items`
+        : typeof value === "object"
+          ? Object.entries(value).map(([key, item]) => {
+            if (key === "retrieved_evidence" && Array.isArray(item)) return `retrieved items: ${item.length}`;
+            if (item === null || item === undefined) return `${evaluationLabel(key)}: Metric unavailable`;
+            return `${evaluationLabel(key)}: ${typeof item === "object" ? JSON.stringify(item) : item}`;
+          }).join(" · ")
+          : String(value);
+      addEvaluationText(details, "p", `${evaluationLabel(config)}: ${metricText}`);
     });
     dom.evaluationQuestions.appendChild(details);
   });
@@ -1125,8 +1429,8 @@ function renderEvaluationArtifact(artifact) {
   dom.evaluationSummary.classList.toggle("hidden", dom.evaluationSummary.childElementCount === 0);
   dom.evaluationQuestions.classList.toggle("hidden", dom.evaluationQuestions.childElementCount === 0);
   dom.evaluationStatus.textContent = artifact.incomplete
-    ? "Historical artifact loaded; some evaluations are incomplete."
-    : "Historical artifact loaded. Values are read-only saved results.";
+    ? "Saved evaluation loaded. Some saved results are incomplete."
+    : "Saved evaluation loaded.";
 }
 
 async function loadEvaluationArtifacts() {
@@ -1140,27 +1444,28 @@ async function loadEvaluationArtifacts() {
       const option = document.createElement("option");
       option.value = artifact.id;
       option.textContent = artifact.title;
+      option.title = artifact.description || artifact.title;
       dom.evaluationSelect.appendChild(option);
     });
   } catch {
-    dom.evaluationStatus.textContent = "Saved evaluation artifacts are unavailable.";
+    dom.evaluationStatus.textContent = "Saved evaluations are unavailable.";
   }
 }
 
 async function loadSelectedEvaluation() {
   const artifactId = dom.evaluationSelect?.value;
   if (!artifactId) {
-    dom.evaluationStatus.textContent = "Select an artifact to inspect saved results.";
+    dom.evaluationStatus.textContent = "Select a saved evaluation to review.";
     return;
   }
-  dom.evaluationStatus.textContent = "Loading saved artifact…";
+  dom.evaluationStatus.textContent = "Loading saved evaluation…";
   try {
     const response = await fetch(`/evaluation/results?artifact_id=${encodeURIComponent(artifactId)}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
     renderEvaluationArtifact(payload.artifact);
   } catch {
-    dom.evaluationStatus.textContent = "Unable to load the selected saved artifact.";
+    dom.evaluationStatus.textContent = "Unable to load the selected evaluation.";
   }
 }
 
@@ -1225,21 +1530,10 @@ function init() {
   checkHealth();
   setInterval(checkHealth, 30_000);
 
-  // Load paper button & Enter key
-  dom.loadPaperBtn?.addEventListener("click", () => {
-    selectPaper(dom.pdfInput?.value || "");
-  });
-
-  dom.pdfInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      selectPaper(dom.pdfInput?.value || "");
-    }
-  });
-
-  // Preset chips / items
   dom.presetList?.addEventListener("click", (e) => {
+    if (e.target.closest(".doc-remove-btn, .doc-confirm, .uploaded-doc-item")) return;
     const btn = e.target.closest(".doc-item-btn");
-    if (btn && btn.dataset.filename) {
+    if (btn?.dataset.origin === "sample" && btn.dataset.filename) {
       selectPaper(btn.dataset.filename);
     }
   });

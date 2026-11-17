@@ -94,6 +94,16 @@ def get_or_build_bundle(
                 _locks.pop(identity, None)
 
 
+def invalidate_document_cache(document_id: str) -> None:
+    """Drop cached ingestion and retrieval bundles for one document."""
+    if not document_id:
+        return
+    with _cache_lock:
+        stale_keys = [key for key in _cache if key[0] == document_id]
+        for key in stale_keys:
+            _cache.pop(key, None)
+
+
 def clear_document_cache() -> None:
     """Clear cached bundles; intended for tests and controlled application teardown."""
     with _cache_lock:

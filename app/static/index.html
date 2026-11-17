@@ -92,46 +92,22 @@
           <!-- Active Document Status Card -->
           <div class="library-section">
             <div class="section-title">Active Target Document</div>
-            <div class="active-doc-card" id="active-paper-display">
+            <div class="active-doc-card" id="active-paper-display" data-status="ready">
               <div class="active-doc-badge">
                 <span class="active-pulse-dot" aria-hidden="true"></span>
-                <span class="active-badge-text">Loaded</span>
+                <span class="active-badge-text" id="active-paper-badge">Ready</span>
               </div>
-              <div class="active-doc-name" id="active-paper-name">sample_paper.pdf</div>
-              <div class="active-doc-meta" id="active-paper-status" data-status="ready">Grounded multi-modal indexing ready</div>
+              <div class="active-doc-name" id="active-paper-name" title="sample_paper.pdf">sample_paper.pdf</div>
+              <div class="active-doc-meta" id="active-paper-status" data-status="ready">Ready for questions</div>
             </div>
-          </div>
-
-          <!-- Document Selector Input -->
-          <div class="library-section" id="paper-panel">
-            <div class="section-title">Select from data/</div>
-            <div class="doc-input-box">
-              <div class="input-prefix">
-                <span class="prefix-label">data/</span>
-              </div>
-              <input
-                id="pdf-filename"
-                class="doc-input-field"
-                type="text"
-                placeholder="filename.pdf"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="pdf-hint"
-              />
-              <button class="btn btn-doc-set" id="load-paper-btn" type="button">
-                <span>Set</span>
-              </button>
-            </div>
-            <p class="field-hint" id="pdf-hint">
-              Place PDFs in <code>data/</code> directory. Path escapes are rejected.
-            </p>
           </div>
 
           <!-- Presets / Available Documents -->
           <div class="library-section">
             <div class="section-title">Available Documents</div>
+            <p class="library-feedback" id="library-feedback" role="status" aria-live="polite"></p>
             <div class="doc-list" id="preset-list" role="list">
-              <button class="doc-item-btn active" data-filename="sample_paper.pdf" data-status="ready" type="button" role="listitem">
+              <button class="doc-item-btn active" data-filename="sample_paper.pdf" data-origin="sample" data-status="ready" type="button">
                 <div class="doc-item-icon">
                   <svg viewBox="0 0 14 14" fill="none" aria-hidden="true">
                     <path d="M2.5 1.5h6l3 3v8h-9v-11z" stroke="currentColor" stroke-width="1.2"/>
@@ -139,8 +115,11 @@
                   </svg>
                 </div>
                 <div class="doc-item-info">
-                  <span class="doc-item-name">sample_paper.pdf</span>
-                  <span class="doc-item-type">Multimodal Evaluation Paper</span>
+                  <span class="doc-item-name" title="sample_paper.pdf">sample_paper.pdf</span>
+                  <span class="doc-status-line">
+                    <span class="doc-status-dot" aria-hidden="true"></span>
+                    <span class="doc-item-type">Included sample · ready</span>
+                  </span>
                 </div>
               </button>
             </div>
@@ -355,17 +334,18 @@
                 </svg>
                 <span>Saved Evaluation Results</span>
               </div>
-              <span class="summary-hint">Historical artifacts</span>
+              <span class="summary-hint">Saved results</span>
             </summary>
             <div class="context-drawer evaluation-drawer">
               <div class="evaluation-controls">
-                <label class="ins-k" for="evaluation-artifact-select">Artifact</label>
+                <label class="ins-k" for="evaluation-artifact-select">Evaluation</label>
                 <select id="evaluation-artifact-select" class="evaluation-select">
-                  <option value="">Select saved artifact</option>
+                  <option value="">Select a saved evaluation</option>
                 </select>
                 <button class="btn btn-ghost evaluation-load-btn" id="evaluation-load-btn" type="button">Load</button>
               </div>
-              <p class="evaluation-status" id="evaluation-status">Select an artifact to inspect saved results.</p>
+              <p class="evaluation-status" id="evaluation-status">Select a saved evaluation to review.</p>
+              <p class="evaluation-description hidden" id="evaluation-description"></p>
               <div class="evaluation-meta hidden" id="evaluation-meta"></div>
               <div class="evaluation-summary hidden" id="evaluation-summary"></div>
               <div class="evaluation-questions hidden" id="evaluation-questions"></div>

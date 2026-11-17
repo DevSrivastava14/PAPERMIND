@@ -363,7 +363,7 @@ FAISS maintains a 0-based internal integer ID → `MultimodalElement` map for re
 
 ### 7.3 Persistence
 
-**Neither index is persisted.** Both are built from scratch on every query. This is a known limitation (see [Section 15](#15-known-limitations)).
+**Neither index is written to disk.** A bounded, process-local cache can reuse a document bundle across queries when the file fingerprint matches. Removing an upload drops that bundle. The cache is not shared across processes or container restarts (see [Section 15](#15-known-limitations)).
 
 ---
 
@@ -673,13 +673,13 @@ These limitations are verified against the actual implementation, not inferred.
 
 | Limitation | Detail |
 |---|---|
-| **No index persistence** | FAISS and BM25 indices are rebuilt per request. No caching layer between queries or across container restarts. |
+| **No index persistence** | FAISS and BM25 indexes are not stored on disk. A process-local cache can reuse a document bundle between queries and is cleared for an upload when that upload is removed. It does not survive a process or container restart. |
 | **Single-paper scope per query** | The pipeline indexes one PDF per request. Cross-paper retrieval is not supported. |
 | **Image content not ranked by cross-encoder** | `CrossEncoderReranker` extracts text from image metadata fields (`caption`, `description`) as a proxy. Raw image pixels are never passed to the cross-encoder. |
 | **Table and equation coverage** | Extraction is implemented but the 8-question evaluation set does not cover these modalities, so retrieval quality for tables and equations has not been benchmarked. |
 | **In-memory FAISS only** | `IndexFlatIP` is exact but unscaled: O(n) brute-force scan. For documents significantly larger than the current test papers, latency would grow linearly with element count. |
 | **DeepEval results limited by rate limits** | The Day 25 evaluation run completed only Q1 fully. Q6 and INSUFFICIENT failed due to Groq rate limits during evaluation, not during API queries. |
-| **LangSmith not integrated** | Structured JSON logs are used instead. LangSmith integration is deferred pending evidence that it provides meaningful tracing value over the current log structure. |
+| **LangSmith is optional** | Structured JSON logs remain the local trace. LangSmith tracing is implemented and stays disabled unless `LANGSMITH_TRACING` is enabled. Traced payloads are limited to safe metadata. |
 | **No multi-turn or session state** | Each `/query` request is fully stateless. There is no conversation history, no session, and no cross-request context. |
 | **Model cold-start latency** | HuggingFace models (sentence-transformers, CLIP, cross-encoder) are loaded lazily on first use. The first request after container startup is substantially slower than subsequent requests once weights are in memory. |
 

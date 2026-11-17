@@ -24,7 +24,7 @@
    - [Evaluation Metrics Scope](#evaluation-metrics-scope)
 4. [Operational and Production Limitations](#4-operational-and-production-limitations)
    - [CPU Reranking Latency Ceiling](#cpu-reranking-latency-ceiling)
-   - [Absence of Distributed Tracing (LangSmith Deferred)](#absence-of-distributed-tracing-langsmith-deferred)
+   - [Optional LangSmith Tracing](#optional-langsmith-tracing)
    - [No Persistent Vector Database Storage](#no-persistent-vector-database-storage)
 5. [Summary Classification Matrix](#5-summary-classification-matrix)
 
@@ -34,17 +34,17 @@
 
 ### Single-Paper-per-Query Ingestion Boundary
 
-- **What it is:** The FastAPI endpoint (`POST /query`) accepts a single `pdf_path` string per request. All document parsing, text chunking, visual extraction, indexing, and retrieval are strictly scoped to that individual PDF.
+- **What it is:** Each query accepts one document, either a trusted `pdf_path` or a registered `document_id`. Parsing, chunking, visual extraction, indexing, and retrieval stay scoped to that individual PDF.
 - **Why it exists:** PaperMind was specifically engineered for deep, grounded exploration of a single complex technical paper with high-fidelity citation traceability, rather than a broad multi-document corpus search engine.
 - **Practical impact:** Users cannot issue cross-document comparative queries (e.g., comparing methodology across 10 papers) in a single request. Multi-paper workflows require separate API calls per paper.
 - **Classification:** **Intentional scope decision**.
 
 ### In-Memory FAISS Index Rebuild Lifecycle
 
-- **What it is:** Dense vector indexes (`FAISSIndex`, `MultimodalFAISSIndex`) and the sparse BM25 inverted index (`BM25Index`) are instantiated entirely in memory during request execution and discarded upon request completion.
-- **Why it exists:** In-memory index generation for an 8-page paper is exceptionally fast (PDF parsing ~51.3 ms, embedding ~17.3 ms, FAISS retrieval ~0.35 ms). Rebuilding indexes eliminates index-staleness bugs, state leakage across concurrent queries, and disk serialization overhead.
-- **Practical impact:** Each query re-parses and re-embeds the document. While negligible for an 8-page paper (<100 ms ingestion overhead), querying a 100-page book or re-querying the same paper hundreds of times incurs redundant compute.
-- **Classification:** **Intentional scope decision** (stateless local design; vector persistence deferred).
+- **What it is:** Dense vector indexes (`FAISSIndex`, `MultimodalFAISSIndex`) and the sparse BM25 inverted index (`BM25Index`) live only in a bounded process-local cache. A repeated query reuses the bundle when the file fingerprint matches. The bundle is dropped when the file changes, the upload is removed, the cache evicts it, or the process exits.
+- **Why it exists:** In-memory index generation for an 8-page paper is exceptionally fast (PDF parsing ~51.3 ms, embedding ~17.3 ms, FAISS retrieval ~0.35 ms). Keeping indexes in the process avoids disk serialization, and the file fingerprint prevents a changed PDF from reusing a stale bundle.
+- **Practical impact:** The first query for a document builds its bundle. Later queries for the same unchanged file reuse it. A changed file, a removed upload, cache eviction, or a new process builds it again. A much larger document still pays that build cost on every cache miss.
+- **Classification:** **Intentional scope decision** (process-local cache; durable vector storage deferred).
 
 ### Single-Hop Relationship Expansion
 
@@ -137,12 +137,12 @@
 - **Practical impact:** In Day 28, reducing candidate pool from 20 to 10 brought reranking latency down from 786.27 ms to 452.24 ms (-42.5%), enabling sub-second local execution (979 ms local path). However, scaling candidate pools to 50 or 100 on CPU would push response times to multiple seconds. Production deployment requires GPU acceleration or model quantization (ONNX/TensorRT).
 - **Classification:** **Hardware / compute constraint**.
 
-### Absence of Distributed Tracing (LangSmith Deferred)
+### Optional LangSmith Tracing
 
-- **What it is:** PaperMind uses Python standard-library structured JSON logging (`papermind.api`, `papermind.retrieval`, `papermind.generation`) rather than a hosted observability platform like LangSmith or OpenTelemetry.
-- **Why it exists:** LangSmith requires external service credentials, network egress, and third-party dependencies without improving retrieval quality for a single-service architecture.
-- **Practical impact:** Traces are inspected via log streams (`docker compose logs`) or stdout, rather than an interactive graphical UI.
-- **Classification:** **Intentional scope decision** (deferred pending multi-service requirement).
+- **What it is:** Local structured JSON logging remains the default. LangSmith tracing is implemented and stays disabled unless `LANGSMITH_TRACING` is enabled. Enabled traces contain safe metadata, not raw questions, document text, prompts, or answers.
+- **Why it exists:** Hosted tracing needs an external account and is not required to run retrieval or generation.
+- **Practical impact:** With tracing off, request traces stay in local logs. With tracing on, a configured LangSmith project receives the reduced metadata.
+- **Classification:** **Implemented and disabled by default**.
 
 ### No Persistent Vector Database Storage
 
@@ -158,7 +158,7 @@
 | Limitation | Category | Impact | Status |
 |---|---|---|---|
 | Single-paper-per-query | Architecture | No cross-document queries | Intentional scope |
-| In-memory FAISS lifecycle | Storage | Redundant index building for repeated queries | Intentional scope |
+| In-memory FAISS lifecycle | Storage | Reused within one process; no durable index | Intentional scope |
 | 1-hop relationship expansion | Graph Retrieval | Multi-hop reasoning not traversed | Intentional scope |
 | Text cross-encoder image blindspot | Modality | Text-only model penalizes raw images | Mitigated via `MultimodalReranker` |
 | CLIP coarse semantic alignment | Model | Dense technical diagram text missed | Model capability ceiling |
@@ -169,6 +169,6 @@
 | Zero table/equation test samples | Evaluation | Extraction works in unit tests; end-to-end unmeasured | Benchmark data gap |
 | DeepEval Groq rate limits | Evaluation | Only Q1 complete; Q6/INSUFFICIENT rate-limited | Infrastructure/quota constraint |
 | CPU reranking latency | Performance | Reranking candidate pool capped at 10 for latency | Hardware constraint (GPU needed for pool>30) |
-| LangSmith deferred | Observability | Structured JSON logs used instead of hosted UI | Intentional scope |
+| LangSmith optional | Observability | Disabled by default; local JSON logs remain | Implemented, off by default |
 | No persistent vector DB | Infrastructure | Zero vector DB overhead; ephemeral indexes | Intentional scope |
 

@@ -12,22 +12,38 @@ _EVALUATION_DIR = Path(__file__).resolve().parents[2] / "data" / "evaluation"
 ARTIFACT_REGISTRY: dict[str, dict[str, str]] = {
     "baseline": {
         "filename": "baseline_retrieval_results.json",
-        "title": "Eight-question retrieval benchmark",
+        "title": "Research Question Benchmark",
+        "description": (
+            "Rank-based retrieval results for eight research questions, compared "
+            "across dense, BM25, hybrid, and reranked search."
+        ),
         "kind": "retrieval",
     },
     "day23": {
         "filename": "day23_lightweight_baseline.json",
-        "title": "Day 23 lightweight retrieval checkpoint",
+        "title": "Retrieval Performance Evaluation",
+        "description": (
+            "Retrieval-only results for questions Q1–Q6 across dense, hybrid, and "
+            "reranked search. Answer quality was not measured."
+        ),
         "kind": "retrieval",
     },
     "day25": {
         "filename": "day25_deepeval_results.json",
-        "title": "Day 25 DeepEval results",
+        "title": "Answer and Retrieval Quality Evaluation",
+        "description": (
+            "Judge-model scores for answer faithfulness, answer relevancy, and "
+            "contextual retrieval quality. Question Q1 is complete; the other saved cases are incomplete."
+        ),
         "kind": "deepeval",
     },
     "q1_smoke": {
         "filename": "q1_smoke_test_results.json",
-        "title": "Q1 cross-configuration smoke test",
+        "title": "Cross-Configuration Evaluation",
+        "description": (
+            "Contextual relevancy, precision, and recall for one research question, "
+            "compared across dense, BM25, hybrid, and reranked search."
+        ),
         "kind": "deepeval",
     },
 }
@@ -40,6 +56,7 @@ def list_artifacts() -> list[dict[str, Any]]:
             "id": artifact_id,
             "filename": entry["filename"],
             "title": entry["title"],
+            "description": entry["description"],
             "kind": entry["kind"],
             "available": (_EVALUATION_DIR / entry["filename"]).is_file(),
         }
@@ -68,6 +85,7 @@ def load_artifact(artifact_id: str) -> dict[str, Any]:
             "id": artifact_id,
             "filename": entry["filename"],
             "title": entry["title"],
+            "description": entry["description"],
             "kind": entry["kind"],
             "historical": True,
         }

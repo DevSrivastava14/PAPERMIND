@@ -35,6 +35,7 @@ from app.multimodal.representation import ElementType, MultimodalElement
 from app.orchestration.langgraph_graph import GraphState, build_papermind_graph
 from app.evaluation.viewer import list_artifacts, load_artifact
 from app.documents.manager import (
+    delete_uploaded_document,
     get_upload_root,
     get_document,
     list_documents,
@@ -462,6 +463,19 @@ def documents() -> dict[str, list[dict[str, object]]]:
         return {"documents": list_documents()}
     except OSError:
         raise HTTPException(status_code=500, detail="Uploaded documents are unavailable")
+
+
+@app.delete("/documents/{document_id}")
+def remove_document(document_id: str) -> dict[str, object]:
+    """Remove one application-managed upload and its cached index data."""
+    try:
+        return delete_uploaded_document(document_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown document")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="The document cannot be removed")
+    except OSError:
+        raise HTTPException(status_code=500, detail="The document could not be removed")
 
 
 @app.post("/documents", status_code=201)

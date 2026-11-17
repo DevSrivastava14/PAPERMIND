@@ -40,6 +40,48 @@ def test_evaluation_artifact_listing_is_allowlisted() -> None:
     assert all(item["available"] is True for item in artifacts)
 
 
+def test_evaluation_display_names_preserve_identity_and_describe_each_result() -> None:
+    response = client.get("/evaluation/results")
+    artifacts = {item["id"]: item for item in response.json()["artifacts"]}
+    expected = {
+        "baseline": (
+            "baseline_retrieval_results.json",
+            "Research Question Benchmark",
+            "eight research questions",
+        ),
+        "day23": (
+            "day23_lightweight_baseline.json",
+            "Retrieval Performance Evaluation",
+            "Answer quality was not measured",
+        ),
+        "day25": (
+            "day25_deepeval_results.json",
+            "Answer and Retrieval Quality Evaluation",
+            "faithfulness",
+        ),
+        "q1_smoke": (
+            "q1_smoke_test_results.json",
+            "Cross-Configuration Evaluation",
+            "one research question",
+        ),
+    }
+
+    assert len({item["description"] for item in artifacts.values()}) == 4
+    for artifact_id, (filename, title, description_snippet) in expected.items():
+        listed = artifacts[artifact_id]
+        assert listed["filename"] == filename
+        assert listed["title"] == title
+        assert description_snippet in listed["description"]
+        assert "Day " not in listed["title"]
+        loaded = client.get("/evaluation/results", params={"artifact_id": artifact_id})
+        assert loaded.status_code == 200
+        artifact = loaded.json()["artifact"]
+        assert artifact["id"] == artifact_id
+        assert artifact["filename"] == filename
+        assert artifact["title"] == title
+        assert artifact["description"] == listed["description"]
+
+
 @pytest.mark.parametrize("artifact_id", ["baseline", "day23", "day25", "q1_smoke"])
 def test_evaluation_artifact_selection_normalizes_saved_files(artifact_id: str) -> None:
     response = client.get("/evaluation/results", params={"artifact_id": artifact_id})
